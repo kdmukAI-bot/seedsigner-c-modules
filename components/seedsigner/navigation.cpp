@@ -1,5 +1,7 @@
 #include "navigation.h"
 
+#define NAV_INDEX_NONE ((size_t)-1)
+
 extern "C" __attribute__((weak)) void seedsigner_lvgl_on_aux_key(const char *key_name) {
     (void)key_name;
 }
@@ -68,6 +70,14 @@ static int focused_index_in(nav_ctx_t *ctx, lv_obj_t **arr, size_t count) {
         if (arr[i] == f) return (int)i;
     }
     return -1;
+}
+
+static size_t first_valid_body_index(nav_ctx_t *ctx) {
+    if (!ctx || !ctx->body_items) return NAV_INDEX_NONE;
+    for (size_t i = 0; i < ctx->body_count; ++i) {
+        if (ctx->body_items[i]) return i;
+    }
+    return NAV_INDEX_NONE;
 }
 
 static void nav_key_handler(lv_event_t *e) {
@@ -189,10 +199,20 @@ void nav_bind(const nav_config_t *cfg) {
         if (ctx->body_items[i]) lv_group_add_obj(ctx->group, ctx->body_items[i]);
     }
 
-    if (ctx->body_count > 0) {
-        focus_body(ctx, 0);
-    } else if (ctx->top_count > 0) {
-        focus_top(ctx, 0);
+    input_mode_t mode = cfg->has_input_mode_override ? cfg->input_mode_override : input_profile_get_mode();
+    if (mode == INPUT_MODE_HARDWARE) {
+        size_t target = NAV_INDEX_NONE;
+        if (cfg->initial_body_index != NAV_INDEX_NONE && cfg->initial_body_index < ctx->body_count && ctx->body_items[cfg->initial_body_index]) {
+            target = cfg->initial_body_index;
+        } else {
+            target = first_valid_body_index(ctx);
+        }
+
+        if (target != NAV_INDEX_NONE) {
+            focus_body(ctx, target);
+        } else if (ctx->top_count > 0) {
+            focus_top(ctx, 0);
+        }
     }
 
     lv_indev_t *indev = NULL;

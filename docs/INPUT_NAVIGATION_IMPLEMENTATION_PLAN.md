@@ -58,10 +58,10 @@ Exit criteria:
 
 ## Phase 2 — Input mode/profile plumbing
 
-- [ ] Add global runtime input profile API (set/get) in seedsigner component layer
-- [ ] Enforce default-selection policy from profile (touch vs hardware)
-- [ ] Add optional `initial_selected_index` support for screens that need explicit initial focus
-- [ ] Keep per-screen config override optional and minimal (no pollution)
+- [x] Add global runtime input profile API (set/get) in seedsigner component layer
+- [x] Enforce default-selection policy from profile (touch vs hardware)
+- [x] Add optional `initial_selected_index` support for screens that need explicit initial focus
+- [x] Keep per-screen config override optional and minimal (no pollution)
 
 Exit criteria:
 - Same binary can switch behavior by runtime profile only.

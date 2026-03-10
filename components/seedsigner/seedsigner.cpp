@@ -2,6 +2,7 @@
 #include "components.h"
 #include "gui_constants.h"
 #include "navigation.h"
+#include "input_profile.h"
 
 #include "lvgl.h"
 
@@ -113,6 +114,83 @@ typedef struct {
     lv_obj_t *top_power_btn;
     lv_obj_t *body;
 } screen_scaffold_t;
+
+static nav_aux_policy_t nav_aux_policy_from_cfg(const json &cfg) {
+    nav_aux_policy_t aux_policy = {NAV_AUX_ENTER, NAV_AUX_ENTER, NAV_AUX_ENTER};
+    if (!(cfg.contains("input") && cfg["input"].is_object() && cfg["input"].contains("keys") && cfg["input"]["keys"].is_object())) {
+        return aux_policy;
+    }
+
+    const auto &keys = cfg["input"]["keys"];
+    auto parse_aux = [](const json &k, const char *name, nav_aux_action_t current) {
+        if (!k.contains(name) || !k[name].is_string()) return current;
+        std::string s = k[name].get<std::string>();
+        if (s == "enter") return NAV_AUX_ENTER;
+        if (s == "noop") return NAV_AUX_NOOP;
+        if (s == "emit") return NAV_AUX_EMIT;
+        return current;
+    };
+
+    aux_policy.key1 = parse_aux(keys, "key1", aux_policy.key1);
+    aux_policy.key2 = parse_aux(keys, "key2", aux_policy.key2);
+    aux_policy.key3 = parse_aux(keys, "key3", aux_policy.key3);
+    return aux_policy;
+}
+
+static void nav_mode_override_from_cfg(const json &cfg, bool &has_override, input_mode_t &mode_override) {
+    has_override = false;
+    mode_override = INPUT_MODE_TOUCH;
+
+    if (!(cfg.contains("input") && cfg["input"].is_object() && cfg["input"].contains("mode") && cfg["input"]["mode"].is_string())) {
+        return;
+    }
+
+    std::string mode = cfg["input"]["mode"].get<std::string>();
+    if (mode == "touch") {
+        has_override = true;
+        mode_override = INPUT_MODE_TOUCH;
+    } else if (mode == "hardware") {
+        has_override = true;
+        mode_override = INPUT_MODE_HARDWARE;
+    }
+}
+
+static size_t nav_initial_index_from_cfg(const json &cfg, size_t default_index) {
+    if (cfg.contains("initial_selected_index") && cfg["initial_selected_index"].is_number_integer()) {
+        int idx = cfg["initial_selected_index"].get<int>();
+        if (idx >= 0) {
+            return (size_t)idx;
+        }
+    }
+    return default_index;
+}
+
+// Shared nav wiring helper for all screens.
+// Screens provide only focusables/layout/default body index; this helper applies
+// top-nav wiring, aux-key policy, mode override, and binds nav in one place.
+static void bind_screen_navigation(const json &cfg,
+                                   const screen_scaffold_t &screen,
+                                   lv_obj_t **body_items,
+                                   size_t body_item_count,
+                                   nav_body_layout_t body_layout,
+                                   size_t default_initial_index) {
+    bool has_input_mode_override = false;
+    input_mode_t input_mode_override = INPUT_MODE_TOUCH;
+    nav_mode_override_from_cfg(cfg, has_input_mode_override, input_mode_override);
+
+    nav_config_t nav_cfg;
+    nav_cfg.screen = screen.screen;
+    nav_cfg.top_back_btn = screen.top_back_btn;
+    nav_cfg.top_power_btn = screen.top_power_btn;
+    nav_cfg.body_items = body_items;
+    nav_cfg.body_item_count = body_item_count;
+    nav_cfg.body_layout = body_layout;
+    nav_cfg.aux_policy = nav_aux_policy_from_cfg(cfg);
+    nav_cfg.initial_body_index = nav_initial_index_from_cfg(cfg, default_initial_index);
+    nav_cfg.has_input_mode_override = has_input_mode_override;
+    nav_cfg.input_mode_override = input_mode_override;
+    nav_bind(&nav_cfg);
+}
 
 // Build root screen: top nav + standard body container.
 // Screen-specific code should only populate scaffold.body, then call
@@ -227,31 +305,15 @@ void button_list_screen(void *ctx_json)
         }
     }
 
-    nav_aux_policy_t aux_policy = {NAV_AUX_ENTER, NAV_AUX_ENTER, NAV_AUX_ENTER};
-    if (cfg.contains("input") && cfg["input"].is_object() && cfg["input"].contains("keys") && cfg["input"]["keys"].is_object()) {
-        const auto &keys = cfg["input"]["keys"];
-        auto parse_aux = [](const json &k, const char *name, nav_aux_action_t current) {
-            if (!k.contains(name) || !k[name].is_string()) return current;
-            std::string s = k[name].get<std::string>();
-            if (s == "enter") return NAV_AUX_ENTER;
-            if (s == "noop") return NAV_AUX_NOOP;
-            if (s == "emit") return NAV_AUX_EMIT;
-            return current;
-        };
-        aux_policy.key1 = parse_aux(keys, "key1", aux_policy.key1);
-        aux_policy.key2 = parse_aux(keys, "key2", aux_policy.key2);
-        aux_policy.key3 = parse_aux(keys, "key3", aux_policy.key3);
-    }
-
-    nav_config_t nav_cfg;
-    nav_cfg.screen = scr;
-    nav_cfg.top_back_btn = screen.top_back_btn;
-    nav_cfg.top_power_btn = screen.top_power_btn;
-    nav_cfg.body_items = body_items.empty() ? NULL : body_items.data();
-    nav_cfg.body_item_count = body_items.size();
-    nav_cfg.body_layout = NAV_BODY_VERTICAL;
-    nav_cfg.aux_policy = aux_policy;
-    nav_bind(&nav_cfg);
+    // Bind shared nav behavior using this screen's body focusables/layout.
+    bind_screen_navigation(
+        cfg,
+        screen,
+        body_items.empty() ? NULL : body_items.data(),
+        body_items.size(),
+        NAV_BODY_VERTICAL,
+        (size_t)-1
+    );
 
     load_screen_and_cleanup_previous(scr);
 }
@@ -314,7 +376,15 @@ void main_menu_screen(void *ctx)
 
     );
 
-    button_set_active(buttons[0], true);
+    // Bind shared nav behavior using this screen's body focusables/layout.
+    bind_screen_navigation(
+        cfg,
+        screen,
+        buttons,
+        4,
+        NAV_BODY_GRID,
+        0
+    );
 
     load_screen_and_cleanup_previous(scr);
 }

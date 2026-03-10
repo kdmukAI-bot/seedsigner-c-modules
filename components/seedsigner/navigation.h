@@ -2,7 +2,9 @@
 #define SEEDSIGNER_NAVIGATION_H
 
 #include "lvgl.h"
+#include "input_profile.h"
 #include <stddef.h>
+#include <stdbool.h>
 
 #ifdef __cplusplus
 extern "C" {
@@ -39,6 +41,9 @@ typedef struct {
     size_t body_item_count;
     nav_body_layout_t body_layout;
     nav_aux_policy_t aux_policy;
+    size_t initial_body_index;
+    bool has_input_mode_override;
+    input_mode_t input_mode_override;
 } nav_config_t;
 
 void nav_bind(const nav_config_t *cfg);
