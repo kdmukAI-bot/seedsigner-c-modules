@@ -44,8 +44,16 @@ __pycache__/
 # Screenshot generator local build outputs
 tools/screenshot_generator/.build/
 tools/screenshot_generator/screenshot_gen
+tools/screenshot_generator/build-*/
+tools/screenshot_generator/build/
 
 tools/screenshot_generator/screenshots/
+
+# Input nav harness local build outputs
+tests/input_nav_harness/build-*/
+tests/input_nav_harness/build/
+tests/input_nav_harness/.build/
+tests/input_nav_harness/input_nav_harness
 
 # OS/editor
 .DS_Store
