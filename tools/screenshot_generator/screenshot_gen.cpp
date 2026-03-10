@@ -30,8 +30,8 @@
 
 #define DEFAULT_WIDTH 480
 #define DEFAULT_HEIGHT 320
-#define DEFAULT_OUT_DIR "tests/screenshot_generator/screenshots"
-#define DEFAULT_SCENARIOS_FILE "tests/screenshot_generator/scenarios.json"
+#define DEFAULT_OUT_DIR "tools/screenshot_generator/screenshots"
+#define DEFAULT_SCENARIOS_FILE "tools/scenarios.json"
 
 static int g_width = DEFAULT_WIDTH;
 static int g_height = DEFAULT_HEIGHT;
@@ -528,7 +528,7 @@ int main(int argc, char **argv) {
 
     std::vector<scenario_def_t> scenarios;
     if (load_scenarios_file(scenarios_file, scenarios) != 0) {
-        const char *fallback = "custom-c-modules/tests/screenshot_generator/scenarios.json";
+        const char *fallback = "tools/scenarios.json";
         if (strcmp(scenarios_file, fallback) != 0 && load_scenarios_file(fallback, scenarios) == 0) {
             fprintf(stderr, "note: using fallback scenarios file: %s\n", fallback);
         } else {

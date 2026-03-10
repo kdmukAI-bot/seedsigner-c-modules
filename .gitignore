@@ -42,8 +42,10 @@ __pycache__/
 *.pyc
 
 # Screenshot generator local build outputs
-tests/screenshot_generator/.build/
-tests/screenshot_generator/screenshot_gen
+tools/screenshot_generator/.build/
+tools/screenshot_generator/screenshot_gen
+
+tools/screenshot_generator/screenshots/
 
 # OS/editor
 .DS_Store

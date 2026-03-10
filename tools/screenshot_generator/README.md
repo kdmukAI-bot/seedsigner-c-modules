@@ -7,28 +7,28 @@ Generates deterministic screenshots from real LVGL screen render paths using JSO
 From repo root:
 
 ```bash
-cmake -S custom-c-modules/tests/screenshot_generator \
-      -B custom-c-modules/tests/screenshot_generator/build
-cmake --build custom-c-modules/tests/screenshot_generator/build -j
+cmake -S tools/screenshot_generator \
+      -B tools/screenshot_generator/build
+cmake --build tools/screenshot_generator/build -j
 ```
 
 Executable:
 
-- `custom-c-modules/tests/screenshot_generator/build/screenshot_gen`
+- `tools/screenshot_generator/build/screenshot_gen`
 
 ## Usage
 
 ```bash
-custom-c-modules/tests/screenshot_generator/build/screenshot_gen [options]
+tools/screenshot_generator/build/screenshot_gen [options]
 ```
 
 Options:
 
-- `--out-dir <path>` output root (default `tests/screenshot_generator/screenshots`)
+- `--out-dir <path>` output root (default `tools/screenshot_generator/screenshots`)
 - `--width <px>` render width (default `480`)
 - `--height <px>` render height (default `320`)
 - `--scenarios-file <path>` scenario config file
-  - default from `custom-c-modules` repo root: `tests/screenshot_generator/scenarios.json`
+  - default from repo root: `tools/scenarios.json`
 
 ## Scenario configuration
 

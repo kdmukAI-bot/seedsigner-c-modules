@@ -10,9 +10,9 @@ find_package(PNG REQUIRED)
 
 
 # Repo layout assumptions:
-# - this file lives at seedsigner-c-modules/tests/screenshot_generator
+# - this file lives at seedsigner-c-modules/tools/screenshot_generator
 # - LVGL headers are provided via -DLVGL_ROOT=<path> (preferred), or auto-detected below.
-set(PROJECT_ROOT "${CMAKE_CURRENT_LIST_DIR}/../../..")
+set(PROJECT_ROOT "${CMAKE_CURRENT_LIST_DIR}/../..")
 set(SEEDSIGNER_DIR "${CMAKE_CURRENT_LIST_DIR}/../../components/seedsigner")
 set(NLOHMANN_JSON_INCLUDE_DIR "${CMAKE_CURRENT_LIST_DIR}/../../components/nlohmann_json/include")
 
