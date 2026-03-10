@@ -1,6 +1,7 @@
 #include "seedsigner.h"
 #include "components.h"
 #include "gui_constants.h"
+#include "navigation.h"
 
 #include "lvgl.h"
 
@@ -46,7 +47,7 @@ static lv_obj_t* top_nav_from_screen_json(lv_obj_t* lv_parent, const json &cfg) 
         }
     }
 
-    return top_nav(lv_parent, title.c_str(), show_back, show_power);
+    return top_nav(lv_parent, title.c_str(), show_back, show_power, NULL, NULL);
 }
 
 // Reusable sanity check for incoming screen JSON payloads.
@@ -108,6 +109,8 @@ static lv_obj_t* create_standard_body_content(lv_obj_t *screen, lv_obj_t *top_na
 typedef struct {
     lv_obj_t *screen;
     lv_obj_t *top_nav;
+    lv_obj_t *top_back_btn;
+    lv_obj_t *top_power_btn;
     lv_obj_t *body;
 } screen_scaffold_t;
 
@@ -124,7 +127,18 @@ static screen_scaffold_t create_top_nav_screen_scaffold(const json &cfg, bool sc
     lv_obj_set_style_pad_all(out.screen, 0, LV_PART_MAIN);
     lv_obj_set_style_outline_width(out.screen, 0, LV_PART_MAIN);
 
-    out.top_nav = top_nav_from_screen_json(out.screen, cfg);
+    bool show_back = true;
+    bool show_power = false;
+    const auto &tn = cfg["top_nav"];
+    if (tn.contains("show_back_button") && tn["show_back_button"].is_boolean()) {
+        show_back = tn["show_back_button"].get<bool>();
+    }
+    if (tn.contains("show_power_button") && tn["show_power_button"].is_boolean()) {
+        show_power = tn["show_power_button"].get<bool>();
+    }
+    std::string title = tn["title"].get<std::string>();
+
+    out.top_nav = top_nav(out.screen, title.c_str(), show_back, show_power, &out.top_back_btn, &out.top_power_btn);
     out.body = create_standard_body_content(out.screen, out.top_nav, scrollable);
     return out;
 }
@@ -203,6 +217,41 @@ void button_list_screen(void *ctx_json)
     lv_obj_t *body_content = screen.body;
 
     button_list(body_content, items.data(), items.size());
+
+    std::vector<lv_obj_t *> body_items;
+    uint32_t child_count = lv_obj_get_child_cnt(body_content);
+    for (uint32_t i = 0; i < child_count; ++i) {
+        lv_obj_t *child = lv_obj_get_child(body_content, i);
+        if (child && lv_obj_check_type(child, &lv_btn_class)) {
+            body_items.push_back(child);
+        }
+    }
+
+    nav_aux_policy_t aux_policy = {NAV_AUX_ENTER, NAV_AUX_ENTER, NAV_AUX_ENTER};
+    if (cfg.contains("input") && cfg["input"].is_object() && cfg["input"].contains("keys") && cfg["input"]["keys"].is_object()) {
+        const auto &keys = cfg["input"]["keys"];
+        auto parse_aux = [](const json &k, const char *name, nav_aux_action_t current) {
+            if (!k.contains(name) || !k[name].is_string()) return current;
+            std::string s = k[name].get<std::string>();
+            if (s == "enter") return NAV_AUX_ENTER;
+            if (s == "noop") return NAV_AUX_NOOP;
+            if (s == "emit") return NAV_AUX_EMIT;
+            return current;
+        };
+        aux_policy.key1 = parse_aux(keys, "key1", aux_policy.key1);
+        aux_policy.key2 = parse_aux(keys, "key2", aux_policy.key2);
+        aux_policy.key3 = parse_aux(keys, "key3", aux_policy.key3);
+    }
+
+    nav_config_t nav_cfg;
+    nav_cfg.screen = scr;
+    nav_cfg.top_back_btn = screen.top_back_btn;
+    nav_cfg.top_power_btn = screen.top_power_btn;
+    nav_cfg.body_items = body_items.empty() ? NULL : body_items.data();
+    nav_cfg.body_item_count = body_items.size();
+    nav_cfg.body_layout = NAV_BODY_VERTICAL;
+    nav_cfg.aux_policy = aux_policy;
+    nav_bind(&nav_cfg);
 
     load_screen_and_cleanup_previous(scr);
 }

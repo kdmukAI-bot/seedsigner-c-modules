@@ -50,6 +50,7 @@ set(SEEDSIGNER_FONT_SOURCES
 
 set(SEEDSIGNER_CORE_SOURCES
   "${SEEDSIGNER_DIR}/components.cpp"
+  "${SEEDSIGNER_DIR}/navigation.cpp"
   "${SEEDSIGNER_DIR}/seedsigner.cpp"
 )
 

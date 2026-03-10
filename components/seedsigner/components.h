@@ -5,7 +5,7 @@
 #include <stdbool.h>
 #include <stddef.h>
 
-lv_obj_t* top_nav(lv_obj_t* lv_parent, const char *title, bool show_back_button, bool show_power_button);
+lv_obj_t* top_nav(lv_obj_t* lv_parent, const char *title, bool show_back_button, bool show_power_button, lv_obj_t **out_back_btn, lv_obj_t **out_power_btn);
 
 typedef struct {
     const char *label;

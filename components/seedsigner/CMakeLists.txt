@@ -21,6 +21,7 @@ list(APPEND srcs
     "fonts/seedsigner_icons_36_4bpp_150x.c"
     "seedsigner.cpp"
     "components.cpp"
+    "navigation.cpp"
 )
 
 

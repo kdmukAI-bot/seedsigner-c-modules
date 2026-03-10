@@ -35,7 +35,7 @@ static lv_obj_t* top_nav_icon_button(lv_obj_t* lv_parent, const char* icon, lv_a
     return btn;
 }
 
-lv_obj_t* top_nav(lv_obj_t* lv_parent, const char *title, bool show_back_button, bool show_power_button) {
+lv_obj_t* top_nav(lv_obj_t* lv_parent, const char *title, bool show_back_button, bool show_power_button, lv_obj_t **out_back_btn, lv_obj_t **out_power_btn) {
 
     lv_parent = lv_parent ? lv_parent : lv_scr_act();
     lv_obj_t* lv_top_nav = lv_obj_create(lv_parent);
@@ -112,6 +112,12 @@ lv_obj_t* top_nav(lv_obj_t* lv_parent, const char *title, bool show_back_button,
         lv_obj_align(label, LV_ALIGN_CENTER, 0, 0);
     }
 
+    if (out_back_btn) {
+        *out_back_btn = back_btn;
+    }
+    if (out_power_btn) {
+        *out_power_btn = power_btn;
+    }
 
     return lv_top_nav;
 }
