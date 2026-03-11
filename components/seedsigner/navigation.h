@@ -17,8 +17,7 @@ typedef enum {
 
 typedef enum {
     NAV_BODY_VERTICAL = 0,
-    NAV_BODY_HORIZONTAL = 1,
-    NAV_BODY_GRID = 2,
+    NAV_BODY_GRID = 1,
 } nav_body_layout_t;
 
 typedef enum {

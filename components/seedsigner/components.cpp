@@ -168,47 +168,11 @@ extern "C" __attribute__((weak)) void seedsigner_lvgl_on_button_selected(uint32_
 static lv_obj_t *s_press_btn = NULL;
 static lv_point_t s_press_point = {0, 0};
 static bool s_press_dragged = false;
-static bool s_suppress_next_body_click = false;
-static bool s_nav_top_zone_active = false;
-
-void suppress_next_body_button_click(void) {
-    s_suppress_next_body_click = true;
-}
-
-void set_nav_top_zone_active(bool active) {
-    s_nav_top_zone_active = active;
-}
-
 void button_toggle_callback(lv_event_t* e) {
     lv_event_code_t code = lv_event_get_code(e);
     lv_obj_t* btn = lv_event_get_target(e);
 
     lv_indev_t *indev = lv_indev_get_act();
-
-    // Design decision: in keypad/hardware navigation flows, focused button is
-    // rendered as the active-selected state (orange), replacing LVGL's default
-    // blue focus outline for clearer SeedSigner UX parity.
-    if (code == LV_EVENT_FOCUSED) {
-        lv_obj_t* parent = lv_obj_get_parent(btn);
-        if (parent) {
-            uint32_t child_count = lv_obj_get_child_cnt(parent);
-            for (uint32_t i = 0; i < child_count; ++i) {
-                lv_obj_t* child = lv_obj_get_child(parent, i);
-                if (!child || !lv_obj_check_type(child, &lv_btn_class)) {
-                    continue;
-                }
-                button_set_active(child, child == btn);
-            }
-        } else {
-            button_set_active(btn, true);
-        }
-        return;
-    }
-
-    if (code == LV_EVENT_DEFOCUSED) {
-        button_set_active(btn, false);
-        return;
-    }
 
     if (code == LV_EVENT_PRESSED) {
         s_press_btn = btn;
@@ -244,32 +208,20 @@ void button_toggle_callback(lv_event_t* e) {
         return;
     }
 
-    if (s_nav_top_zone_active || s_suppress_next_body_click) {
-        s_suppress_next_body_click = false;
-        s_press_btn = NULL;
-        s_press_dragged = false;
-        return;
-    }
-
     lv_obj_t* parent = lv_obj_get_parent(btn);
 
-    // Click must correspond to the same pressed button.
-    if (s_press_btn != btn) {
-        s_press_btn = NULL;
-        s_press_dragged = false;
-        return;
-    }
-
-    // Distinguish tap vs drag gestures.
-    // NOTE: Do not gate clicks on lv_indev_get_scroll_obj(). On some flows
-    // (notably a single-button list after a swipe starts on that button),
-    // LVGL can retain a non-NULL scroll_obj and incorrectly suppress future
-    // taps. The movement threshold tracked via s_press_dragged is the stable
-    // source of truth for rejecting swipe/scroll gestures here.
-    if (s_press_dragged) {
-        s_press_btn = NULL;
-        s_press_dragged = false;
-        return;
+    // Touch-originated clicks must correspond to the same pressed button and
+    // must not have been a drag gesture.
+    // Hardware-triggered clicks (sent via lv_event_send from nav_key_handler)
+    // arrive with a keypad indev active, not a pointer — is_touch is false and
+    // these guards are skipped so seedsigner_lvgl_on_button_selected fires.
+    bool is_touch = (indev != NULL && lv_indev_get_type(indev) == LV_INDEV_TYPE_POINTER);
+    if (is_touch) {
+        if (s_press_btn != btn || s_press_dragged) {
+            s_press_btn = NULL;
+            s_press_dragged = false;
+            return;
+        }
     }
 
     // Enforce single-select behavior: deactivate all sibling buttons first.
@@ -356,8 +308,6 @@ lv_obj_t* button(lv_obj_t* lv_parent, const char* text, lv_obj_t* align_to) {
     lv_obj_add_event_cb(lv_button, button_toggle_callback, LV_EVENT_PRESSING, NULL);
     lv_obj_add_event_cb(lv_button, button_toggle_callback, LV_EVENT_CLICKED, NULL);
     lv_obj_add_event_cb(lv_button, button_toggle_callback, LV_EVENT_RELEASED, NULL);
-    lv_obj_add_event_cb(lv_button, button_toggle_callback, LV_EVENT_FOCUSED, NULL);
-    lv_obj_add_event_cb(lv_button, button_toggle_callback, LV_EVENT_DEFOCUSED, NULL);
 
     // Default to inactive state
     button_set_active(lv_button, false);
@@ -408,8 +358,6 @@ lv_obj_t* large_icon_button(lv_obj_t* lv_parent, const char* icon, const char* t
     lv_obj_add_event_cb(lv_button, button_toggle_callback, LV_EVENT_PRESSING, NULL);
     lv_obj_add_event_cb(lv_button, button_toggle_callback, LV_EVENT_CLICKED, NULL);
     lv_obj_add_event_cb(lv_button, button_toggle_callback, LV_EVENT_RELEASED, NULL);
-    lv_obj_add_event_cb(lv_button, button_toggle_callback, LV_EVENT_FOCUSED, NULL);
-    lv_obj_add_event_cb(lv_button, button_toggle_callback, LV_EVENT_DEFOCUSED, NULL);
 
     button_set_active(lv_button, false);
     return lv_button;

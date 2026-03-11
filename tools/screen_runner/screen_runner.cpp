@@ -41,6 +41,15 @@ static std::vector<lv_color_t> g_fb;
 static uint32_t g_pending_key = 0;
 static bool g_key_ready = false;
 
+// Strong override: log every hardware button selection to the terminal.
+extern "C" void seedsigner_lvgl_on_button_selected(uint32_t index, const char *label) {
+    if (index == 0xFFFFFFFFu) {
+        SDL_Log("[nav] top-nav button: %s", label ? label : "");
+    } else {
+        SDL_Log("[nav] body button selected: index=%u  label=%s", (unsigned)index, label ? label : "");
+    }
+}
+
 static screen_fn_t lookup_screen_fn(const std::string &name) {
     auto it = k_screen_registry.find(name);
     return (it == k_screen_registry.end()) ? NULL : it->second;
