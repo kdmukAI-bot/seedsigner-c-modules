@@ -17,5 +17,6 @@ lv_obj_t* large_icon_button(lv_obj_t* lv_parent, const char* icon, const char* t
 lv_obj_t* button_list(lv_obj_t* lv_parent, const button_list_item_t *items, size_t item_count);
 
 void button_set_active(lv_obj_t* lv_button, bool active);
+void button_clear_interaction_state(void);
 
 #endif // SEEDSIGNER_COMPONENTS_H

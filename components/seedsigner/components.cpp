@@ -169,6 +169,13 @@ static lv_obj_t *s_press_btn = NULL;
 static lv_point_t s_press_point = {0, 0};
 static bool s_press_dragged = false;
 
+void button_clear_interaction_state(void) {
+    s_press_btn = NULL;
+    s_press_dragged = false;
+    s_press_point.x = 0;
+    s_press_point.y = 0;
+}
+
 void button_toggle_callback(lv_event_t* e) {
     lv_event_code_t code = lv_event_get_code(e);
     lv_obj_t* btn = lv_event_get_target(e);

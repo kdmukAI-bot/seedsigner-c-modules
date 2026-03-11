@@ -131,6 +131,18 @@ static void set_body_active(nav_ctx_t *ctx, size_t idx) {
     }
 }
 
+// While top-nav virtual zone is active, disable body clickability so ENTER
+// cannot be auto-translated by LVGL into a stale body button click.
+static void set_body_clickable(nav_ctx_t *ctx, bool clickable) {
+    if (!ctx || !ctx->body_items) return;
+    for (size_t i = 0; i < ctx->body_count; ++i) {
+        lv_obj_t *obj = ctx->body_items[i];
+        if (!obj || !lv_obj_is_valid(obj)) continue;
+        if (clickable) lv_obj_add_flag(obj, LV_OBJ_FLAG_CLICKABLE);
+        else lv_obj_clear_flag(obj, LV_OBJ_FLAG_CLICKABLE);
+    }
+}
+
 // Enter top-nav virtual zone at index.
 static bool focus_top(nav_ctx_t *ctx, size_t idx) {
     if (!ctx || idx >= ctx->top_count) return false;
@@ -138,6 +150,8 @@ static bool focus_top(nav_ctx_t *ctx, size_t idx) {
     ctx->top_virtual_index = idx;
     set_top_virtual_active(ctx, idx);
     set_body_active(ctx, NAV_INDEX_NONE);
+    set_body_clickable(ctx, false);
+    button_clear_interaction_state();
     return true;
 }
 
@@ -152,6 +166,7 @@ static bool focus_body(nav_ctx_t *ctx, size_t idx) {
 
     set_top_virtual_active(ctx, NAV_INDEX_NONE);
     set_body_active(ctx, idx);
+    set_body_clickable(ctx, true);
 
     lv_group_focus_obj(obj);
     return true;
@@ -401,6 +416,9 @@ void nav_bind(const nav_config_t *cfg) {
     }
 
     lv_group_focus_freeze(ctx->group, false);
+
+    // Body starts clickable by default; focus_top() will disable while top zone is active.
+    set_body_clickable(ctx, true);
 
     input_mode_t mode = cfg->has_input_mode_override ? cfg->input_mode_override : input_profile_get_mode();
     if (mode == INPUT_MODE_HARDWARE) {

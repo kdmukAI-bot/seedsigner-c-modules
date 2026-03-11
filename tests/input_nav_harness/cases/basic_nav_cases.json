@@ -5,6 +5,20 @@
       "screen": "main_menu_screen",
       "context": {},
       "keys": ["UP", "ENTER"],
+      "expect_events": ["topnav_power"]
+    },
+    {
+      "name": "button_list_top_nav_back_on_enter",
+      "screen": "button_list_screen",
+      "context": {
+        "top_nav": {
+          "title": "Menu",
+          "show_back_button": true,
+          "show_power_button": false
+        },
+        "button_list": ["Alpha", "Beta", "Gamma"]
+      },
+      "keys": ["UP", "ENTER"],
       "expect_events": ["topnav_back"]
     },
     {
