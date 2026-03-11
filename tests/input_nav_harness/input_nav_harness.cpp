@@ -9,6 +9,9 @@
 #include <string>
 #include <unordered_map>
 #include <vector>
+#include <cctype>
+
+#include "gui_constants.h"
 
 using json = nlohmann::ordered_json;
 
@@ -79,6 +82,67 @@ static lv_obj_t *find_first_grouped_button(lv_obj_t *root) {
     return NULL;
 }
 
+static bool is_ascii_body_label(const std::string &s) {
+    if (s.empty()) return false;
+    bool has_alpha = false;
+    for (unsigned char ch : s) {
+        if (ch >= 128) return false;
+        if (!(std::isalnum(ch) || std::isspace(ch) || ch == '_' || ch == '-')) return false;
+        if (std::isalpha(ch)) has_alpha = true;
+    }
+    return has_alpha;
+}
+
+static std::string button_text(lv_obj_t *btn) {
+    if (!btn) return std::string();
+    uint32_t n = lv_obj_get_child_cnt(btn);
+    for (uint32_t i = 0; i < n; ++i) {
+        lv_obj_t *ch = lv_obj_get_child(btn, i);
+        if (!ch) continue;
+        if (lv_obj_check_type(ch, &lv_label_class)) {
+            const char *t = lv_label_get_text(ch);
+            if (t && t[0] != '\0') return std::string(t);
+        }
+    }
+    return std::string();
+}
+
+static void collect_buttons(lv_obj_t *root, std::vector<lv_obj_t*> &out) {
+    if (!root) return;
+    if (lv_obj_check_type(root, &lv_btn_class)) out.push_back(root);
+    uint32_t n = lv_obj_get_child_cnt(root);
+    for (uint32_t i = 0; i < n; ++i) collect_buttons(lv_obj_get_child(root, i), out);
+}
+
+static bool is_button_active(lv_obj_t *btn) {
+    lv_color_t c = lv_obj_get_style_bg_color(btn, LV_PART_MAIN);
+    return lv_color_to32(c) == lv_color_to32(lv_color_hex(ACCENT_COLOR));
+}
+
+static int assert_visual_invariants(const std::string &case_name, const std::string &phase) {
+    std::vector<lv_obj_t*> buttons;
+    collect_buttons(lv_scr_act(), buttons);
+
+    int body_active = 0;
+    int non_body_active = 0;
+
+    for (lv_obj_t *btn : buttons) {
+        std::string text = button_text(btn);
+        bool active = is_button_active(btn);
+        if (!active) continue;
+        if (is_ascii_body_label(text)) body_active++;
+        else non_body_active++;
+    }
+
+    // Invariant for this nav model: if top/nav button is active, body should have none active.
+    if (non_body_active > 0 && body_active > 0) {
+        std::cerr << "[FAIL] " << case_name << " visual invariant breach at " << phase
+                  << " (top active=" << non_body_active << ", body active=" << body_active << ")\n";
+        return 1;
+    }
+    return 0;
+}
+
 static int run_case(const json &c) {
     std::string name = c.value("name", "unnamed");
     std::string screen = c.value("screen", "");
@@ -108,6 +172,13 @@ static int run_case(const json &c) {
         return 1;
     }
 
+    bool assert_visual = c.value("assert_visual_invariants", true);
+    if (assert_visual) {
+        int iv = assert_visual_invariants(name, "initial");
+        if (iv != 0) return iv;
+    }
+
+    int key_idx = 0;
     for (const auto &kj : c["keys"]) {
         std::string ks = kj.get<std::string>();
         uint32_t key = parse_key(ks);
@@ -123,6 +194,12 @@ static int run_case(const json &c) {
             lv_tick_inc(10);
             lv_timer_handler();
         }
+
+        if (assert_visual) {
+            int iv = assert_visual_invariants(name, std::string("after_key_") + std::to_string(key_idx) + "_" + ks);
+            if (iv != 0) return iv;
+        }
+        key_idx++;
     }
 
     std::vector<std::string> expected;

@@ -22,6 +22,13 @@
       "expect_events": ["topnav_back"]
     },
     {
+      "name": "main_menu_top_nav_enter_after_body_move",
+      "screen": "main_menu_screen",
+      "context": {},
+      "keys": ["RIGHT", "UP", "ENTER"],
+      "expect_events": ["topnav_power"]
+    },
+    {
       "name": "grid_restore_last_body_selection_after_top_nav",
       "screen": "main_menu_screen",
       "context": {},
