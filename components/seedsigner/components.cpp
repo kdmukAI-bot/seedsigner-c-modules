@@ -168,16 +168,6 @@ extern "C" __attribute__((weak)) void seedsigner_lvgl_on_button_selected(uint32_
 static lv_obj_t *s_press_btn = NULL;
 static lv_point_t s_press_point = {0, 0};
 static bool s_press_dragged = false;
-static bool s_suppress_next_body_click = false;
-static bool s_nav_top_zone_active = false;
-
-void suppress_next_body_button_click(void) {
-    s_suppress_next_body_click = true;
-}
-
-void set_nav_top_zone_active(bool active) {
-    s_nav_top_zone_active = active;
-}
 
 void button_toggle_callback(lv_event_t* e) {
     lv_event_code_t code = lv_event_get_code(e);
@@ -244,8 +234,8 @@ void button_toggle_callback(lv_event_t* e) {
         return;
     }
 
-    if (s_nav_top_zone_active || s_suppress_next_body_click) {
-        s_suppress_next_body_click = false;
+    // Ignore click if this interaction was a drag/scroll gesture.
+    if (s_press_dragged) {
         s_press_btn = NULL;
         s_press_dragged = false;
         return;

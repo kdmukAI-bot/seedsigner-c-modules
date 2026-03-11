@@ -1,36 +1,49 @@
 #include "navigation.h"
+#include "components.h"
 
 #include <cmath>
 
+// Sentinel used for "no valid index" in size_t domains.
 #define NAV_INDEX_NONE ((size_t)-1)
 
+// Optional host callback for aux-key emit mode (weak by design).
 extern "C" __attribute__((weak)) void seedsigner_lvgl_on_aux_key(const char *key_name) {
     (void)key_name;
 }
 
+// Per-screen navigation runtime context.
+//
+// Design note:
+// - BODY controls are owned by a real LVGL group (stable + native for list/grid body focus).
+// - TOP controls are handled as a virtual zone to avoid LVGL focus-state crashes observed
+//   when moving real group focus into top-nav controls in desktop/ASAN runs.
 typedef struct {
     lv_group_t *group;
+
+    // Top-nav focusables (virtual zone only; not added to LVGL group).
     lv_obj_t *top_items[2];
     size_t top_count;
+    size_t top_virtual_index;
+
+    // Body focusables (real LVGL group members).
     lv_obj_t **body_items;
     size_t body_count;
     size_t last_body_index;
+
     nav_zone_t zone;
     nav_body_layout_t body_layout;
     nav_aux_policy_t aux_policy;
-
-    lv_timer_t *focus_timer;
-    bool focus_pending;
-    size_t pending_logical_index;
-    nav_zone_t pending_zone;
 } nav_ctx_t;
 
+// Stop LVGL from continuing default/bubbled key processing once nav layer
+// has already handled a key. Prevents duplicate actions/fallthrough.
 static inline void consume_key_event(lv_event_t *e) {
     if (!e) return;
     lv_event_stop_bubbling(e);
     lv_event_stop_processing(e);
 }
 
+// Map incoming LVGL key code to logical aux key index.
 static bool is_aux_key(uint32_t key, int *idx_out) {
 #ifdef LV_KEY_F1
     if (key == LV_KEY_F1) { *idx_out = 1; return true; }
@@ -47,6 +60,7 @@ static bool is_aux_key(uint32_t key, int *idx_out) {
     return false;
 }
 
+// Resolve configured aux action for KEY1/2/3.
 static nav_aux_action_t action_for_aux(const nav_ctx_t *ctx, int idx) {
     if (!ctx) return NAV_AUX_NOOP;
     if (idx == 1) return ctx->aux_policy.key1;
@@ -55,14 +69,30 @@ static nav_aux_action_t action_for_aux(const nav_ctx_t *ctx, int idx) {
     return NAV_AUX_NOOP;
 }
 
+// Activate currently selected control.
+// - In TOP zone: dispatch click to virtual top-nav target.
+// - In BODY zone: dispatch click to LVGL group focused object.
 static void activate_focused(nav_ctx_t *ctx) {
-    if (!ctx || !ctx->group) return;
+    if (!ctx) return;
+
+    if (ctx->zone == NAV_ZONE_TOP) {
+        if (ctx->top_count == 0) return;
+        size_t idx = ctx->top_virtual_index;
+        if (idx >= ctx->top_count) idx = 0;
+        lv_obj_t *obj = ctx->top_items[idx];
+        if (!obj || !lv_obj_is_valid(obj)) return;
+        lv_event_send(obj, LV_EVENT_CLICKED, NULL);
+        return;
+    }
+
+    if (!ctx->group) return;
     lv_obj_t *obj = lv_group_get_focused(ctx->group);
     if (!obj || !lv_obj_is_valid(obj)) return;
     lv_event_send(obj, LV_EVENT_CLICKED, NULL);
 }
 
-static int focused_index_in_group(nav_ctx_t *ctx, lv_obj_t **arr, size_t count) {
+// Find focused object index in a specific object array.
+static int focused_index_in(nav_ctx_t *ctx, lv_obj_t **arr, size_t count) {
     if (!ctx || !ctx->group || !arr) return -1;
     lv_obj_t *f = lv_group_get_focused(ctx->group);
     if (!f) return -1;
@@ -72,6 +102,7 @@ static int focused_index_in_group(nav_ctx_t *ctx, lv_obj_t **arr, size_t count) 
     return -1;
 }
 
+// Return first valid body object index.
 static size_t first_valid_body_index(nav_ctx_t *ctx) {
     if (!ctx || !ctx->body_items) return NAV_INDEX_NONE;
     for (size_t i = 0; i < ctx->body_count; ++i) {
@@ -80,74 +111,62 @@ static size_t first_valid_body_index(nav_ctx_t *ctx) {
     return NAV_INDEX_NONE;
 }
 
-static lv_obj_t *logical_index_to_obj(nav_ctx_t *ctx, size_t logical_idx) {
-    if (!ctx) return NULL;
-    if (logical_idx < ctx->top_count) {
-        return ctx->top_items[logical_idx];
+// Apply active styling for top-nav virtual selection.
+static void set_top_virtual_active(nav_ctx_t *ctx, size_t idx) {
+    if (!ctx) return;
+    for (size_t i = 0; i < ctx->top_count; ++i) {
+        if (ctx->top_items[i]) {
+            button_set_active(ctx->top_items[i], i == idx);
+        }
     }
-    size_t body_idx = logical_idx - ctx->top_count;
-    if (!ctx->body_items || body_idx >= ctx->body_count) return NULL;
-    return ctx->body_items[body_idx];
 }
 
-static void apply_pending_focus(nav_ctx_t *ctx) {
-    if (!ctx || !ctx->group || !ctx->focus_pending) return;
-
-    size_t total = ctx->top_count + ctx->body_count;
-    if (ctx->pending_logical_index >= total) {
-        ctx->focus_pending = false;
-        return;
+// Apply active styling for body selection.
+static void set_body_active(nav_ctx_t *ctx, size_t idx) {
+    if (!ctx || !ctx->body_items) return;
+    for (size_t i = 0; i < ctx->body_count; ++i) {
+        if (ctx->body_items[i]) {
+            button_set_active(ctx->body_items[i], i == idx);
+        }
     }
-
-    lv_obj_t *target = logical_index_to_obj(ctx, ctx->pending_logical_index);
-    if (target && lv_obj_is_valid(target)) {
-        lv_group_focus_obj(target);
-    }
-
-    ctx->zone = ctx->pending_zone;
-    if (ctx->zone == NAV_ZONE_BODY && ctx->pending_logical_index >= ctx->top_count) {
-        ctx->last_body_index = ctx->pending_logical_index - ctx->top_count;
-    }
-    ctx->focus_pending = false;
 }
 
-static void focus_timer_cb(lv_timer_t *t) {
-    if (!t) return;
-    nav_ctx_t *ctx = (nav_ctx_t *)t->user_data;
-    apply_pending_focus(ctx);
-}
-
-static bool queue_focus_top(nav_ctx_t *ctx, size_t idx) {
-    if (!ctx || idx >= ctx->top_count) return false;
-    ctx->pending_logical_index = idx;
-    ctx->pending_zone = NAV_ZONE_TOP;
-    ctx->focus_pending = true;
-    return true;
-}
-
-static bool queue_focus_body(nav_ctx_t *ctx, size_t idx) {
-    if (!ctx || idx >= ctx->body_count) return false;
-    ctx->pending_logical_index = ctx->top_count + idx;
-    ctx->pending_zone = NAV_ZONE_BODY;
-    ctx->focus_pending = true;
-    return true;
-}
-
+// Enter top-nav virtual zone at index.
 static bool focus_top(nav_ctx_t *ctx, size_t idx) {
-    return queue_focus_top(ctx, idx);
+    if (!ctx || idx >= ctx->top_count) return false;
+    ctx->zone = NAV_ZONE_TOP;
+    ctx->top_virtual_index = idx;
+    set_top_virtual_active(ctx, idx);
+    set_body_active(ctx, NAV_INDEX_NONE);
+    return true;
 }
 
+// Enter body zone at index and move real LVGL group focus there.
 static bool focus_body(nav_ctx_t *ctx, size_t idx) {
-    return queue_focus_body(ctx, idx);
+    if (!ctx || idx >= ctx->body_count || !ctx->group || !ctx->body_items) return false;
+    lv_obj_t *obj = ctx->body_items[idx];
+    if (!obj || !lv_obj_is_valid(obj)) return false;
+
+    ctx->zone = NAV_ZONE_BODY;
+    ctx->last_body_index = idx;
+
+    set_top_virtual_active(ctx, NAV_INDEX_NONE);
+    set_body_active(ctx, idx);
+
+    lv_group_focus_obj(obj);
+    return true;
 }
 
+// Compute column count for grid navigation.
 static size_t grid_columns_for_count(size_t body_count) {
     if (body_count <= 1) return 1;
-    if (body_count == 4) return 2;
+    if (body_count == 4) return 2; // explicit common 2x2 case
+
     size_t c = (size_t)std::ceil(std::sqrt((double)body_count));
     return c > 0 ? c : 1;
 }
 
+// Compute next grid index for directional key within body zone.
 static size_t grid_move(size_t current, size_t body_count, size_t cols, uint32_t key) {
     if (body_count == 0 || cols == 0 || current >= body_count) return current;
 
@@ -180,6 +199,7 @@ static size_t grid_move(size_t current, size_t body_count, size_t cols, uint32_t
     return current;
 }
 
+// Central keyboard handler for nav-enabled controls.
 static void nav_key_handler(lv_event_t *e) {
     if (!e) return;
     if (lv_event_get_code(e) != LV_EVENT_KEY) return;
@@ -189,6 +209,7 @@ static void nav_key_handler(lv_event_t *e) {
 
     uint32_t key = lv_event_get_key(e);
 
+    // Aux policy handling.
     int aux_idx = 0;
     if (is_aux_key(key, &aux_idx)) {
         nav_aux_action_t action = action_for_aux(ctx, aux_idx);
@@ -204,21 +225,28 @@ static void nav_key_handler(lv_event_t *e) {
         return;
     }
 
+    // ENTER activation.
     if (key == LV_KEY_ENTER) {
         activate_focused(ctx);
         consume_key_event(e);
         return;
     }
 
-    int top_i = focused_index_in_group(ctx, ctx->top_items, ctx->top_count);
-    int body_i = focused_index_in_group(ctx, ctx->body_items, ctx->body_count);
+    // Derive current logical position.
+    int top_i = (ctx->zone == NAV_ZONE_TOP) ? (int)ctx->top_virtual_index : -1;
+    int body_i = focused_index_in(ctx, ctx->body_items, ctx->body_count);
 
-    if (top_i >= 0) ctx->zone = NAV_ZONE_TOP;
-    if (body_i >= 0) {
+    // Keep top-zone authoritative while virtual top-nav is active.
+    if (ctx->zone != NAV_ZONE_TOP && body_i >= 0) {
         ctx->zone = NAV_ZONE_BODY;
         ctx->last_body_index = (size_t)body_i;
     }
+    if (ctx->zone == NAV_ZONE_TOP && (top_i < 0 || (size_t)top_i >= ctx->top_count)) {
+        top_i = 0;
+        ctx->top_virtual_index = 0;
+    }
 
+    // Top-nav lateral movement.
     if (key == LV_KEY_LEFT || key == LV_KEY_RIGHT) {
         if (ctx->zone == NAV_ZONE_TOP && ctx->top_count > 1 && top_i >= 0) {
             if (key == LV_KEY_LEFT && top_i > 0) {
@@ -259,7 +287,7 @@ static void nav_key_handler(lv_event_t *e) {
 
         if (key == LV_KEY_LEFT || key == LV_KEY_RIGHT) {
             consume_key_event(e);
-            return;
+            return; // body no-op for vertical lists
         }
     }
 
@@ -304,17 +332,13 @@ static void nav_key_handler(lv_event_t *e) {
     }
 }
 
+// Cleanup callback tied to screen lifetime.
 static void nav_cleanup_handler(lv_event_t *e) {
     if (!e) return;
     if (lv_event_get_code(e) != LV_EVENT_DELETE) return;
 
     nav_ctx_t *ctx = (nav_ctx_t *)lv_event_get_user_data(e);
     if (!ctx) return;
-
-    if (ctx->focus_timer) {
-        lv_timer_del(ctx->focus_timer);
-        ctx->focus_timer = NULL;
-    }
 
     if (ctx->group) {
         lv_group_del(ctx->group);
@@ -327,6 +351,7 @@ static void nav_cleanup_handler(lv_event_t *e) {
     lv_mem_free(ctx);
 }
 
+// Bind nav behavior to a screen.
 void nav_bind(const nav_config_t *cfg) {
     if (!cfg || !cfg->screen) return;
 
@@ -337,13 +362,6 @@ void nav_bind(const nav_config_t *cfg) {
     ctx->group = lv_group_create();
     lv_group_set_wrap(ctx->group, false);
     lv_group_focus_freeze(ctx->group, true);
-
-    ctx->focus_timer = lv_timer_create(focus_timer_cb, 1, ctx);
-    if (!ctx->focus_timer) {
-        if (ctx->group) lv_group_del(ctx->group);
-        lv_mem_free(ctx);
-        return;
-    }
 
     ctx->body_count = cfg->body_item_count;
     if (ctx->body_count > 0) {
@@ -357,6 +375,7 @@ void nav_bind(const nav_config_t *cfg) {
             ctx->body_items[i] = cfg->body_items ? cfg->body_items[i] : NULL;
         }
     }
+
     ctx->body_layout = cfg->body_layout;
     ctx->aux_policy = cfg->aux_policy;
     ctx->last_body_index = 0;
@@ -368,6 +387,8 @@ void nav_bind(const nav_config_t *cfg) {
         ctx->top_items[ctx->top_count++] = cfg->top_power_btn;
     }
 
+    // Design decision: top-nav is virtual for zone logic, but we still add top
+    // objects to group to keep LVGL ownership coherent with focus/indev routing.
     for (size_t i = 0; i < ctx->top_count; ++i) {
         if (ctx->top_items[i] && lv_obj_is_valid(ctx->top_items[i])) {
             lv_group_add_obj(ctx->group, ctx->top_items[i]);
@@ -384,7 +405,9 @@ void nav_bind(const nav_config_t *cfg) {
     input_mode_t mode = cfg->has_input_mode_override ? cfg->input_mode_override : input_profile_get_mode();
     if (mode == INPUT_MODE_HARDWARE) {
         size_t target = NAV_INDEX_NONE;
-        if (cfg->initial_body_index != NAV_INDEX_NONE && cfg->initial_body_index < ctx->body_count && ctx->body_items[cfg->initial_body_index]) {
+        if (cfg->initial_body_index != NAV_INDEX_NONE &&
+            cfg->initial_body_index < ctx->body_count &&
+            ctx->body_items[cfg->initial_body_index]) {
             target = cfg->initial_body_index;
         } else {
             target = first_valid_body_index(ctx);
@@ -393,20 +416,21 @@ void nav_bind(const nav_config_t *cfg) {
         if (target != NAV_INDEX_NONE) {
             ctx->last_body_index = target;
             focus_body(ctx, target);
-            apply_pending_focus(ctx);
         } else if (ctx->top_count > 0) {
             focus_top(ctx, 0);
-            apply_pending_focus(ctx);
         }
     }
 
+    // Bind keypad/encoder indevs to this screen's nav group.
     lv_indev_t *indev = NULL;
     while ((indev = lv_indev_get_next(indev)) != NULL) {
-        if (lv_indev_get_type(indev) == LV_INDEV_TYPE_KEYPAD || lv_indev_get_type(indev) == LV_INDEV_TYPE_ENCODER) {
+        if (lv_indev_get_type(indev) == LV_INDEV_TYPE_KEYPAD ||
+            lv_indev_get_type(indev) == LV_INDEV_TYPE_ENCODER) {
             lv_indev_set_group(indev, ctx->group);
         }
     }
 
+    // Attach key handler to focusable controls.
     for (size_t i = 0; i < ctx->top_count; ++i) {
         if (ctx->top_items[i]) lv_obj_add_event_cb(ctx->top_items[i], nav_key_handler, LV_EVENT_KEY, ctx);
     }
