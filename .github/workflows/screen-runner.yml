@@ -122,6 +122,12 @@ jobs:
               '| Windows | `screen-runner-windows` |',
               '',
               '_Artifacts require GitHub authentication to download and expire after 90 days._',
+              '',
+              '#### macOS: removing quarantine',
+              'macOS Gatekeeper blocks unsigned downloaded binaries. After extracting, run:',
+              '```',
+              'xattr -d com.apple.quarantine screen_runner',
+              '```',
             ].join('\n');
 
             const { data: comments } = await github.rest.issues.listComments({
