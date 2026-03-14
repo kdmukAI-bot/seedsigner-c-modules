@@ -58,7 +58,7 @@ jobs:
 
       - name: Install dependencies (macOS)
         if: matrix.platform == 'macos'
-        run: brew install sdl2 sdl2_ttf imagemagick cmake
+        run: brew install sdl2 sdl2_ttf imagemagick
 
       - name: Configure
         run: |
