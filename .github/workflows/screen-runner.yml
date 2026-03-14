@@ -1,0 +1,149 @@
+name: Build Screen Runner
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+  pull-requests: write
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-24.04
+            platform: linux
+            shell: bash
+          - os: macos-latest
+            platform: macos
+            shell: bash
+          - os: windows-latest
+            platform: windows
+            shell: msys2 {0}
+
+    runs-on: ${{ matrix.os }}
+    defaults:
+      run:
+        shell: ${{ matrix.shell }}
+
+    steps:
+      - name: Setup MSYS2
+        if: matrix.platform == 'windows'
+        uses: msys2/setup-msys2@v2
+        with:
+          msystem: MINGW64
+          install: >-
+            mingw-w64-x86_64-cmake
+            mingw-w64-x86_64-ninja
+            mingw-w64-x86_64-gcc
+            mingw-w64-x86_64-SDL2
+            mingw-w64-x86_64-SDL2_ttf
+            mingw-w64-x86_64-imagemagick
+
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Install dependencies (Linux)
+        if: matrix.platform == 'linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y cmake build-essential libsdl2-dev libsdl2-ttf-dev imagemagick
+
+      - name: Install dependencies (macOS)
+        if: matrix.platform == 'macos'
+        run: brew install sdl2 sdl2_ttf imagemagick cmake
+
+      - name: Configure
+        run: |
+          cmake -S tools/screen_runner -B tools/screen_runner/build \
+            -DCMAKE_BUILD_TYPE=Release \
+            ${{ matrix.platform == 'windows' && '-G Ninja' || '' }}
+
+      - name: Build
+        run: cmake --build tools/screen_runner/build --parallel
+
+      - name: Prepare artifact
+        run: |
+          mkdir -p artifact
+          if [ -f tools/screen_runner/build/screen_runner.exe ]; then
+            cp tools/screen_runner/build/screen_runner.exe artifact/
+          else
+            cp tools/screen_runner/build/screen_runner artifact/
+          fi
+          cp tools/screen_runner/build/screen_runner_font_regular.ttf artifact/ 2>/dev/null || true
+          cp tools/screen_runner/build/screen_runner_font_semibold.ttf artifact/ 2>/dev/null || true
+          cp tools/screen_runner/build/screen_runner_logo.bmp artifact/ 2>/dev/null || true
+          cp tools/scenarios.json artifact/
+
+      - name: Bundle DLLs (Windows)
+        if: matrix.platform == 'windows'
+        run: |
+          ldd artifact/screen_runner.exe \
+            | grep -i mingw64 \
+            | awk '{print $3}' \
+            | while read -r dll; do
+                cp "$dll" artifact/
+              done
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: screen-runner-${{ matrix.platform }}
+          path: artifact/
+
+  pr-comment:
+    if: github.event_name == 'pull_request'
+    needs: build
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Post artifact links
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const marker = '<!-- screen-runner-artifacts -->';
+            const runUrl = `https://github.com/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}#artifacts`;
+            const body = [
+              marker,
+              '### Screen Runner Artifacts',
+              '',
+              `Build artifacts for this PR are available at the [workflow run artifacts page](${runUrl}):`,
+              '',
+              '| Platform | Artifact |',
+              '|----------|----------|',
+              '| Linux | `screen-runner-linux` |',
+              '| macOS | `screen-runner-macos` |',
+              '| Windows | `screen-runner-windows` |',
+              '',
+              '_Artifacts require GitHub authentication to download and expire after 90 days._',
+            ].join('\n');
+
+            const { data: comments } = await github.rest.issues.listComments({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.issue.number,
+            });
+
+            const existing = comments.find(c => c.body.includes(marker));
+
+            if (existing) {
+              await github.rest.issues.updateComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                comment_id: existing.id,
+                body,
+              });
+            } else {
+              await github.rest.issues.createComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: context.issue.number,
+                body,
+              });
+            }
