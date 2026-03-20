@@ -1,0 +1,39 @@
+{
+  "pr_number": 12,
+  "timestamp": "2026-03-20 18:08:07Z",
+  "summary": {
+    "total": 6,
+    "changed": 6,
+    "new": 0,
+    "removed": 0,
+    "unchanged": 0
+  },
+  "changed": [
+    {
+      "name": "button_list_screen",
+      "pixel_diff": 75510
+    },
+    {
+      "name": "button_list_screen__1_item",
+      "pixel_diff": 20189
+    },
+    {
+      "name": "button_list_screen__long_title",
+      "pixel_diff": 77973
+    },
+    {
+      "name": "button_list_screen__scroll_many",
+      "pixel_diff": 105776
+    },
+    {
+      "name": "main_menu_screen",
+      "pixel_diff": 105155
+    },
+    {
+      "name": "screensaver_screen",
+      "pixel_diff": 13361
+    }
+  ],
+  "new": [],
+  "removed": []
+}
