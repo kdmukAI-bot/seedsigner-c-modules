@@ -402,11 +402,9 @@ extern "C" void seedsigner_lvgl_on_button_selected(uint32_t index, const char *l
 
 typedef struct {
     lv_obj_t   *screen;
-    lv_obj_t   *prev_screen;  // saved so we can restore on dismiss
     lv_obj_t   *logo_img;
     lv_timer_t *timer;
     lv_group_t *group;
-    lv_group_t *prev_group;   // saved indev group to restore on dismiss
     float       center_x;  // logo center, float for sub-pixel accuracy
     float       center_y;
     float       vel_x;     // pixels per millisecond
@@ -531,18 +529,6 @@ static void screensaver_cleanup_handler(lv_event_t *e) {
         lv_timer_del(ctx->timer);
         ctx->timer = NULL;
     }
-
-    // Restore the previous screen's indev group before deleting ours.
-    if (ctx->prev_group) {
-        lv_indev_t *indev = NULL;
-        while ((indev = lv_indev_get_next(indev)) != NULL) {
-            if (lv_indev_get_type(indev) == LV_INDEV_TYPE_KEYPAD ||
-                lv_indev_get_type(indev) == LV_INDEV_TYPE_ENCODER) {
-                lv_indev_set_group(indev, ctx->prev_group);
-            }
-        }
-    }
-
     if (ctx->group) {
         lv_group_del(ctx->group);
         ctx->group = NULL;
@@ -551,22 +537,6 @@ static void screensaver_cleanup_handler(lv_event_t *e) {
 }
 
 void screensaver_screen(void * /*ctx_json*/) {
-    // Save the current screen so we can restore it when the screensaver exits.
-    lv_obj_t *prev_scr = lv_scr_act();
-
-    // Save the current indev group so we can restore it later.
-    lv_group_t *prev_group = NULL;
-    {
-        lv_indev_t *indev = NULL;
-        while ((indev = lv_indev_get_next(indev)) != NULL) {
-            if (lv_indev_get_type(indev) == LV_INDEV_TYPE_KEYPAD ||
-                lv_indev_get_type(indev) == LV_INDEV_TYPE_ENCODER) {
-                prev_group = lv_indev_get_group(indev);
-                break;
-            }
-        }
-    }
-
     lv_obj_t *scr = lv_obj_create(NULL);
     lv_obj_set_style_bg_color(scr, lv_color_black(), LV_PART_MAIN);
     lv_obj_set_style_bg_opa(scr, LV_OPA_COVER, LV_PART_MAIN);
@@ -588,10 +558,8 @@ void screensaver_screen(void * /*ctx_json*/) {
     // Allocate and initialise animation context.
     screensaver_ctx_t *ctx = (screensaver_ctx_t *)lv_malloc(sizeof(screensaver_ctx_t));
     lv_memzero(ctx, sizeof(*ctx));
-    ctx->screen      = scr;
-    ctx->prev_screen = prev_scr;
-    ctx->prev_group  = prev_group;
-    ctx->logo_img    = logo_img;
+    ctx->screen   = scr;
+    ctx->logo_img = logo_img;
     ctx->screen_w = screen_w;
     ctx->screen_h = screen_h;
     ctx->logo_w   = logo_w;
@@ -644,7 +612,7 @@ void screensaver_screen(void * /*ctx_json*/) {
     lv_obj_add_event_cb(scr, screensaver_cleanup_handler, LV_EVENT_DELETE, ctx);
 
     // Load the screensaver WITHOUT destroying the previous screen.
-    // The previous screen is preserved so we can restore it on dismiss.
+    // The caller is responsible for save/restore via save_screen/restore_screen.
     lv_scr_load(scr);
 }
 
