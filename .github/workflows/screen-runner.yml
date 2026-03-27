@@ -65,6 +65,7 @@ jobs:
         run: |
           cmake -S tools/screen_runner -B tools/screen_runner/build \
             -DCMAKE_BUILD_TYPE=Release \
+            -DDISPLAY_WIDTH=480 -DDISPLAY_HEIGHT=320 \
             ${{ matrix.platform == 'windows' && '-G Ninja' || '' }}
 
       - name: Build

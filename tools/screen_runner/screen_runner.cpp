@@ -17,6 +17,7 @@
 #include <nlohmann/json.hpp>
 
 #include "lvgl.h"
+#include "gui_constants.h"
 #include "seedsigner.h"
 #include "input_profile.h"
 
@@ -47,8 +48,15 @@ struct scenario_def_t {
 // Dimensions (logical pixels; HiDPI textures are rendered at dpi_scale × these)
 // ---------------------------------------------------------------------------
 
-static int g_width = 480;
-static int g_height = 320;
+#ifndef DISPLAY_WIDTH
+#error "DISPLAY_WIDTH must be defined by the build system"
+#endif
+#ifndef DISPLAY_HEIGHT
+#error "DISPLAY_HEIGHT must be defined by the build system"
+#endif
+
+static int g_width = DISPLAY_WIDTH;
+static int g_height = DISPLAY_HEIGHT;
 static int g_viewport_pad  = 12;
 static int g_chrome_w      = 220;
 static int g_chrome_gap    = 8;
@@ -814,6 +822,7 @@ int main(int argc, char **argv) {
     }
 
     // LVGL init.
+    set_display(g_width, g_height);
     lv_init();
     g_fb.assign((size_t)g_width * (size_t)g_height, 0);
 

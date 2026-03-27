@@ -24,6 +24,25 @@ if(NOT SDL2_FOUND)
   )
 endif()
 
+# ---------------------------------------------------------------------------
+# Required inputs: default display dimensions
+# ---------------------------------------------------------------------------
+if(NOT DEFINED DISPLAY_WIDTH OR NOT DEFINED DISPLAY_HEIGHT)
+    message(FATAL_ERROR
+        "DISPLAY_WIDTH and DISPLAY_HEIGHT must be specified.\n"
+        "Example: cmake -DDISPLAY_WIDTH=480 -DDISPLAY_HEIGHT=320 ..."
+    )
+endif()
+
+# Desktop tools support all display heights by default.
+# Pass -DSUPPORT_DISPLAY_HEIGHT_240=OFF or -DSUPPORT_DISPLAY_HEIGHT_320=OFF to restrict.
+if(NOT DEFINED SUPPORT_DISPLAY_HEIGHT_240)
+    set(SUPPORT_DISPLAY_HEIGHT_240 ON)
+endif()
+if(NOT DEFINED SUPPORT_DISPLAY_HEIGHT_320)
+    set(SUPPORT_DISPLAY_HEIGHT_320 ON)
+endif()
+
 # Repo layout assumptions:
 # - this file lives at seedsigner-c-modules/tools/screen_runner
 # - LVGL headers are provided via -DLVGL_ROOT=<path> (preferred), or auto-detected below.
@@ -56,15 +75,28 @@ file(GLOB_RECURSE LVGL_SOURCES CONFIGURE_DEPENDS
   "${LVGL_ROOT}/src/*.c"
 )
 
-set(SEEDSIGNER_FONT_SOURCES
-  "${SEEDSIGNER_DIR}/fonts/opensans_semibold_20_4bpp_125x.c"
-  "${SEEDSIGNER_DIR}/fonts/opensans_semibold_18_4bpp_125x.c"
-  "${SEEDSIGNER_DIR}/fonts/opensans_regular_17_4bpp_125x.c"
-  "${SEEDSIGNER_DIR}/fonts/seedsigner_icons_24_4bpp_125x.c"
-  "${SEEDSIGNER_DIR}/fonts/seedsigner_icons_36_4bpp_125x.c"
-)
+set(SEEDSIGNER_FONT_SOURCES "")
+if(SUPPORT_DISPLAY_HEIGHT_240)
+    list(APPEND SEEDSIGNER_FONT_SOURCES
+      "${SEEDSIGNER_DIR}/fonts/opensans_semibold_20_4bpp.c"
+      "${SEEDSIGNER_DIR}/fonts/opensans_semibold_18_4bpp.c"
+      "${SEEDSIGNER_DIR}/fonts/opensans_regular_17_4bpp.c"
+      "${SEEDSIGNER_DIR}/fonts/seedsigner_icons_24_4bpp.c"
+      "${SEEDSIGNER_DIR}/fonts/seedsigner_icons_36_4bpp.c"
+    )
+endif()
+if(SUPPORT_DISPLAY_HEIGHT_320)
+    list(APPEND SEEDSIGNER_FONT_SOURCES
+      "${SEEDSIGNER_DIR}/fonts/opensans_semibold_20_4bpp_150x.c"
+      "${SEEDSIGNER_DIR}/fonts/opensans_semibold_18_4bpp_150x.c"
+      "${SEEDSIGNER_DIR}/fonts/opensans_regular_17_4bpp_150x.c"
+      "${SEEDSIGNER_DIR}/fonts/seedsigner_icons_24_4bpp_150x.c"
+      "${SEEDSIGNER_DIR}/fonts/seedsigner_icons_36_4bpp_150x.c"
+    )
+endif()
 
 set(SEEDSIGNER_CORE_SOURCES
+  "${SEEDSIGNER_DIR}/gui_constants.cpp"
   "${SEEDSIGNER_DIR}/components.cpp"
   "${SEEDSIGNER_DIR}/input_profile.cpp"
   "${SEEDSIGNER_DIR}/navigation.cpp"
@@ -86,6 +118,10 @@ add_executable(screen_runner
 target_compile_definitions(screen_runner PRIVATE
   LV_CONF_SKIP
   LV_USE_DRAW_SW_ASM=LV_DRAW_SW_ASM_NONE
+  DISPLAY_WIDTH=${DISPLAY_WIDTH}
+  DISPLAY_HEIGHT=${DISPLAY_HEIGHT}
+  $<$<BOOL:${SUPPORT_DISPLAY_HEIGHT_240}>:SUPPORT_DISPLAY_HEIGHT_240>
+  $<$<BOOL:${SUPPORT_DISPLAY_HEIGHT_320}>:SUPPORT_DISPLAY_HEIGHT_320>
 )
 
 target_include_directories(screen_runner PRIVATE
