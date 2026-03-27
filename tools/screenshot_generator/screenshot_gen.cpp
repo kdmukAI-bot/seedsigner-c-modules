@@ -22,19 +22,25 @@
 #include <png.h>
 
 #include "lvgl.h"
+#include "gui_constants.h"
 #include "seedsigner.h"
 
 #ifndef PATH_MAX
 #define PATH_MAX 4096
 #endif
 
-#define DEFAULT_WIDTH 480
-#define DEFAULT_HEIGHT 320
+#ifndef DISPLAY_WIDTH
+#error "DISPLAY_WIDTH must be defined by the build system"
+#endif
+#ifndef DISPLAY_HEIGHT
+#error "DISPLAY_HEIGHT must be defined by the build system"
+#endif
+
 #define DEFAULT_OUT_DIR "tools/screenshot_generator/screenshots"
 #define DEFAULT_SCENARIOS_FILE "tools/scenarios.json"
 
-static int g_width = DEFAULT_WIDTH;
-static int g_height = DEFAULT_HEIGHT;
+static int g_width = DISPLAY_WIDTH;
+static int g_height = DISPLAY_HEIGHT;
 static std::vector<uint16_t> g_fb;
 
 
@@ -340,13 +346,16 @@ static void cleanup_frames_dir(const char *frames_dir) {
 // 1) Capture frame sequence by advancing LVGL ticks/timers.
 // 2) Assemble GIF using ImageMagick (magick/convert).
 // 3) Delete intermediate frame PNGs to keep output directories clean.
-static int maybe_write_scroll_gif(const char *run_dir, const std::string &scenario, lv_display_t *disp, const char *im_bin) {
+//
+// img_dir: directory for output images (e.g. "screenshots/img/480x320")
+// file_base: base filename without extension (e.g. "main_menu_screen_480x320")
+static int maybe_write_scroll_gif(const char *img_dir, const std::string &file_base, lv_display_t *disp, const char *im_bin) {
     if (!im_bin) {
         return 0;
     }
 
     char frames_dir[PATH_MAX];
-    snprintf(frames_dir, sizeof(frames_dir), "%s/img/%s.frames", run_dir, scenario.c_str());
+    snprintf(frames_dir, sizeof(frames_dir), "%s/%s.frames", img_dir, file_base.c_str());
     if (mkdir_p(frames_dir) != 0) {
         return -1;
     }
@@ -371,7 +380,7 @@ static int maybe_write_scroll_gif(const char *run_dir, const std::string &scenar
     }
 
     char out_gif[PATH_MAX];
-    snprintf(out_gif, sizeof(out_gif), "%s/img/%s.gif", run_dir, scenario.c_str());
+    snprintf(out_gif, sizeof(out_gif), "%s/%s.gif", img_dir, file_base.c_str());
 
     char cmd[PATH_MAX * 3];
     snprintf(cmd, sizeof(cmd), "%s -delay 8 -loop 0 '%s'/frame_*.png '%s'", im_bin, frames_dir, out_gif);
@@ -409,26 +418,10 @@ static int remove_tree(const char *path) {
     return 0;
 }
 
-static int write_manifest_json(const char *run_dir, const char *generated_at, const std::vector<scenario_def_t> &scenarios, int width, int height) {
+static int write_manifest_json(const char *run_dir, const char *generated_at, const json &resolutions) {
     json manifest = json::object();
     manifest["generated_at"] = generated_at;
-    manifest["width"] = width;
-    manifest["height"] = height;
-    manifest["screenshots"] = json::array();
-
-    for (const scenario_def_t &scenario : scenarios) {
-        char gif_path[PATH_MAX];
-        snprintf(gif_path, sizeof(gif_path), "%s/img/%s.gif", run_dir, scenario.name.c_str());
-        struct stat gif_st;
-        bool has_gif = (stat(gif_path, &gif_st) == 0) && S_ISREG(gif_st.st_mode);
-        const char *ext = has_gif ? "gif" : "png";
-
-        json item = json::object();
-        item["name"] = scenario.name;
-        item["display_name"] = scenario_display_name(scenario.name) + (has_gif ? " [animated]" : "");
-        item["path"] = std::string("img/") + scenario.name + "." + ext;
-        manifest["screenshots"].push_back(item);
-    }
+    manifest["resolutions"] = resolutions;
 
     char path[PATH_MAX];
     snprintf(path, sizeof(path), "%s/manifest.json", run_dir);
@@ -444,24 +437,24 @@ static int write_manifest_json(const char *run_dir, const char *generated_at, co
 static void usage(const char *argv0) {
     printf("Usage: %s [options]\n", argv0);
     printf("  --out-dir <path>      Output dir (default: %s)\n", DEFAULT_OUT_DIR);
-    printf("  --width <px>          Width (default: %d)\n", DEFAULT_WIDTH);
-    printf("  --height <px>         Height (default: %d)\n", DEFAULT_HEIGHT);
     printf("  --scenarios-file <path>  Scenario config file (default: %s)\n", DEFAULT_SCENARIOS_FILE);
+    printf("\nSupported resolutions (%d):\n", display_profile_count());
+    for (int i = 0; i < display_profile_count(); ++i) {
+        const DisplayProfile &p = display_profile_at(i);
+        printf("  %dx%d\n", p.width, p.height);
+    }
 }
 
 int main(int argc, char **argv) {
     const char *out_dir = DEFAULT_OUT_DIR;
-    int width = DEFAULT_WIDTH;
-    int height = DEFAULT_HEIGHT;
     const char *scenarios_file = DEFAULT_SCENARIOS_FILE;
+
+    // Need an active profile before usage() can call display_profile_count()
+    set_display(DISPLAY_WIDTH, DISPLAY_HEIGHT);
 
     for (int i = 1; i < argc; ++i) {
         if (strcmp(argv[i], "--out-dir") == 0 && i + 1 < argc) {
             out_dir = argv[++i];
-        } else if (strcmp(argv[i], "--width") == 0 && i + 1 < argc) {
-            width = atoi(argv[++i]);
-        } else if (strcmp(argv[i], "--height") == 0 && i + 1 < argc) {
-            height = atoi(argv[++i]);
         } else if (strcmp(argv[i], "--scenarios-file") == 0 && i + 1 < argc) {
             scenarios_file = argv[++i];
         } else if (strcmp(argv[i], "--help") == 0 || strcmp(argv[i], "-h") == 0) {
@@ -473,23 +466,12 @@ int main(int argc, char **argv) {
         }
     }
 
-    if (width <= 0 || height <= 0) {
-        fprintf(stderr, "invalid width/height\n");
-        return 1;
-    }
-
-    g_width = width;
-    g_height = height;
-    g_fb.assign((size_t)g_width * (size_t)g_height, 0);
-
     if (mkdir_p(out_dir) != 0) {
         fprintf(stderr, "Failed creating out dir: %s\n", out_dir);
         return 1;
     }
 
-    // Single-output mode: preserve static files (e.g. index.html),
-    // clear only image artifacts under img/, and overwrite manifest.json.
-
+    // Preserve static files (e.g. index.html), clear image artifacts, overwrite manifest.
     time_t t = time(NULL);
     struct tm tm_utc;
     gmtime_r(&t, &tm_utc);
@@ -505,15 +487,6 @@ int main(int argc, char **argv) {
         fprintf(stderr, "Failed creating image dir: %s\n", img_dir);
         return 1;
     }
-
-    lv_init();
-
-    lv_display_t *disp = lv_display_create(g_width, g_height);
-    lv_display_set_flush_cb(disp, lvgl_flush_cb);
-    lv_display_set_color_format(disp, LV_COLOR_FORMAT_RGB565);
-    static std::vector<uint8_t> draw_buf((size_t)g_width * (size_t)g_height * 2u);
-    lv_display_set_buffers(disp, draw_buf.data(), NULL, draw_buf.size(),
-                           LV_DISPLAY_RENDER_MODE_FULL);
 
     const char *im_bin = imagemagick_binary();
     if (im_bin) {
@@ -533,50 +506,112 @@ int main(int argc, char **argv) {
         }
     }
 
-    for (const scenario_def_t &scenario : scenarios) {
-        try {
-            if (!render_scenario_def(scenario)) {
-                fprintf(stderr, "Unknown/invalid scenario: %s\n", scenario.name.c_str());
-                return 2;
-            }
+    lv_init();
 
-            lv_timer_handler();
-            lv_refr_now(disp);
+    json manifest_resolutions = json::array();
 
-            std::vector<uint8_t> rgb;
-            framebuffer_to_rgb24(rgb);
+    // Generate screenshots for every compiled-in display profile.
+    for (int pi = 0; pi < display_profile_count(); ++pi) {
+        const DisplayProfile &profile = display_profile_at(pi);
 
-            char out_png[PATH_MAX];
-            snprintf(out_png, sizeof(out_png), "%s/img/%s.png", run_dir, scenario.name.c_str());
-            if (write_png_rgb24(out_png, rgb.data(), g_width, g_height) != 0) {
-                fprintf(stderr, "Failed writing PNG: %s\n", out_png);
-                return 1;
-            }
-            printf("wrote %s\n", out_png);
+        set_display(profile.width, profile.height);
+        g_width  = profile.width;
+        g_height = profile.height;
+        g_fb.assign((size_t)g_width * (size_t)g_height, 0);
 
-            if (maybe_write_scroll_gif(run_dir, scenario.name, disp, (im_bin && ctx_get_bool(scenario.context, "animated", false)) ? im_bin : NULL) != 0) {
-                fprintf(stderr, "Failed writing animated GIF for scenario: %s\n", scenario.name.c_str());
-                return 1;
-            }
-            if (im_bin && ctx_get_bool(scenario.context, "animated", false)) {
-                char out_gif[PATH_MAX];
-                snprintf(out_gif, sizeof(out_gif), "%s/img/%s.gif", run_dir, scenario.name.c_str());
-                printf("wrote %s\n", out_gif);
-            }
-        } catch (const std::exception &e) {
-            fprintf(stderr, "Scenario %s threw exception: %s\n", scenario.name.c_str(), e.what());
-            return 3;
-        } catch (...) {
-            fprintf(stderr, "Scenario %s threw unknown exception\n", scenario.name.c_str());
-            return 3;
+        char res_label[32];
+        snprintf(res_label, sizeof(res_label), "%dx%d", g_width, g_height);
+
+        printf("\n--- %s ---\n", res_label);
+
+        char res_img_dir[PATH_MAX];
+        snprintf(res_img_dir, sizeof(res_img_dir), "%s/img/%s", run_dir, res_label);
+        if (mkdir_p(res_img_dir) != 0) {
+            fprintf(stderr, "Failed creating image dir: %s\n", res_img_dir);
+            return 1;
         }
+
+        // Create LVGL display for this resolution.
+        std::vector<uint8_t> draw_buf((size_t)g_width * (size_t)g_height * 2u);
+        lv_display_t *disp = lv_display_create(g_width, g_height);
+        lv_display_set_flush_cb(disp, lvgl_flush_cb);
+        lv_display_set_color_format(disp, LV_COLOR_FORMAT_RGB565);
+        lv_display_set_buffers(disp, draw_buf.data(), NULL, draw_buf.size(),
+                               LV_DISPLAY_RENDER_MODE_FULL);
+
+        json res_entry = json::object();
+        res_entry["width"] = g_width;
+        res_entry["height"] = g_height;
+        res_entry["label"] = std::string(res_label);
+        res_entry["screenshots"] = json::array();
+
+        for (const scenario_def_t &scenario : scenarios) {
+            try {
+                if (!render_scenario_def(scenario)) {
+                    fprintf(stderr, "Unknown/invalid scenario: %s\n", scenario.name.c_str());
+                    return 2;
+                }
+
+                lv_timer_handler();
+                lv_refr_now(disp);
+
+                std::vector<uint8_t> rgb;
+                framebuffer_to_rgb24(rgb);
+
+                std::string file_base = scenario.name + "_" + res_label;
+
+                char out_png[PATH_MAX];
+                snprintf(out_png, sizeof(out_png), "%s/%s.png", res_img_dir, file_base.c_str());
+                if (write_png_rgb24(out_png, rgb.data(), g_width, g_height) != 0) {
+                    fprintf(stderr, "Failed writing PNG: %s\n", out_png);
+                    return 1;
+                }
+                printf("wrote %s\n", out_png);
+
+                bool want_gif = im_bin && ctx_get_bool(scenario.context, "animated", false);
+                if (maybe_write_scroll_gif(res_img_dir, file_base, disp, want_gif ? im_bin : NULL) != 0) {
+                    fprintf(stderr, "Failed writing animated GIF for scenario: %s\n", scenario.name.c_str());
+                    return 1;
+                }
+
+                // Check if GIF was actually produced.
+                char gif_path[PATH_MAX];
+                snprintf(gif_path, sizeof(gif_path), "%s/%s.gif", res_img_dir, file_base.c_str());
+                struct stat gif_st;
+                bool has_gif = (stat(gif_path, &gif_st) == 0) && S_ISREG(gif_st.st_mode);
+                const char *ext = has_gif ? "gif" : "png";
+
+                if (has_gif) {
+                    printf("wrote %s/%s.gif\n", res_img_dir, file_base.c_str());
+                }
+
+                json item = json::object();
+                item["name"] = scenario.name;
+                item["display_name"] = scenario_display_name(scenario.name) + (has_gif ? " [animated]" : "");
+                item["path"] = std::string("img/") + res_label + "/" + file_base + "." + ext;
+                res_entry["screenshots"].push_back(item);
+
+            } catch (const std::exception &e) {
+                fprintf(stderr, "Scenario %s threw exception: %s\n", scenario.name.c_str(), e.what());
+                return 3;
+            } catch (...) {
+                fprintf(stderr, "Scenario %s threw unknown exception\n", scenario.name.c_str());
+                return 3;
+            }
+        }
+
+        lv_display_delete(disp);
+        manifest_resolutions.push_back(res_entry);
+
+        printf("done: %zu scenario(s), %s\n", scenarios.size(), res_label);
     }
 
-    if (write_manifest_json(run_dir, ts, scenarios, g_width, g_height) != 0) {
+    if (write_manifest_json(run_dir, ts, manifest_resolutions) != 0) {
         fprintf(stderr, "Failed writing manifest.json in %s\n", run_dir);
         return 1;
     }
 
-    printf("done: %zu scenario(s), %dx%d\n", scenarios.size(), g_width, g_height);
+    printf("\ndone: %d resolution(s), %zu scenario(s) each\n",
+           display_profile_count(), scenarios.size());
     return 0;
 }

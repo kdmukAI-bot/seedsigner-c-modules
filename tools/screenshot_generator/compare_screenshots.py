@@ -45,6 +45,32 @@ def load_manifest(directory: Path) -> dict:
         return json.load(f)
 
 
+def flatten_manifest(manifest: dict) -> list[dict]:
+    """Flatten a multi-resolution manifest into a list of screenshot entries.
+
+    Each entry gets 'width' and 'height' added from its parent resolution.
+    Handles both the new multi-resolution format (with 'resolutions' key)
+    and the legacy single-resolution format (with top-level 'screenshots').
+    """
+    entries = []
+    if "resolutions" in manifest:
+        for res in manifest["resolutions"]:
+            w, h = res["width"], res["height"]
+            for s in res.get("screenshots", []):
+                entries.append({**s, "width": w, "height": h})
+    elif "screenshots" in manifest:
+        w = manifest.get("width", 480)
+        h = manifest.get("height", 320)
+        for s in manifest["screenshots"]:
+            entries.append({**s, "width": w, "height": h})
+    return entries
+
+
+def unique_key(entry: dict) -> str:
+    """Return a unique key for a screenshot entry across resolutions."""
+    return f"{entry.get('width', 0)}x{entry.get('height', 0)}/{entry['name']}"
+
+
 def find_imagemagick() -> str | None:
     """Return the ImageMagick compare binary name, or None."""
     for candidate in ("magick", "convert"):
@@ -190,20 +216,17 @@ def main():
     before_manifest = load_manifest(before_dir)
     after_manifest = load_manifest(after_dir)
 
-    before_by_name = {}
-    if before_manifest:
-        for entry in before_manifest.get("screenshots", []):
-            before_by_name[entry["name"]] = entry
+    before_entries = flatten_manifest(before_manifest)
+    after_entries = flatten_manifest(after_manifest)
 
-    after_by_name = {}
-    if after_manifest:
-        for entry in after_manifest.get("screenshots", []):
-            after_by_name[entry["name"]] = entry
+    before_by_key = {unique_key(e): e for e in before_entries}
+    after_by_key = {unique_key(e): e for e in after_entries}
 
-    all_names = set(before_by_name.keys()) | set(after_by_name.keys())
+    all_keys = set(before_by_key.keys()) | set(after_by_key.keys())
 
-    width = after_manifest.get("width", before_manifest.get("width", 480))
-    height = after_manifest.get("height", before_manifest.get("height", 320))
+    # For the HTML report, use the largest resolution as default image dimensions.
+    width = max((e["width"] for e in after_entries), default=480)
+    height = max((e["height"] for e in after_entries), default=320)
 
     im_bin = find_imagemagick()
     if not im_bin:
@@ -222,13 +245,16 @@ def main():
     removed_items = []
     unchanged_count = 0
 
-    for name in sorted(all_names):
-        in_before = name in before_by_name
-        in_after = name in after_by_name
+    for key in sorted(all_keys):
+        in_before = key in before_by_key
+        in_after = key in after_by_key
+
+        # Use a filesystem-safe version of the key for output filenames.
+        safe_key = key.replace("/", "_")
 
         if in_after and not in_before:
             # New screenshot
-            after_entry = after_by_name[name]
+            after_entry = after_by_key[key]
             after_src = after_dir / after_entry["path"]
             after_dst = after_out / os.path.basename(after_entry["path"])
             if after_src.exists():
@@ -241,40 +267,40 @@ def main():
 
             display_path = f"after/img/{os.path.basename(after_entry['path'])}"
             new_items.append({
-                "name": name,
-                "display_name": after_entry.get("display_name", name),
+                "name": key,
+                "display_name": after_entry.get("display_name", key),
                 "path": f"after/img/{os.path.basename(png_path_for(after_dir, after_entry))}",
                 "display_path": display_path,
             })
-            print(f"  NEW: {name}")
+            print(f"  NEW: {key}")
 
         elif in_before and not in_after:
             # Removed screenshot
-            before_entry = before_by_name[name]
+            before_entry = before_by_key[key]
             before_src = before_dir / before_entry["path"]
             # For removed, try PNG first, then the original path
             png_src = png_path_for(before_dir, before_entry)
             src = png_src if png_src.exists() else before_src
-            dst = before_out / (name + ".png")
+            dst = before_out / (safe_key + ".png")
             if src.exists():
                 shutil.copy2(src, dst)
             removed_items.append({
-                "name": name,
-                "display_name": before_entry.get("display_name", name),
-                "path": f"before/img/{name}.png",
+                "name": key,
+                "display_name": before_entry.get("display_name", key),
+                "path": f"before/img/{safe_key}.png",
             })
-            print(f"  REMOVED: {name}")
+            print(f"  REMOVED: {key}")
 
         else:
             # Both exist — compare PNG hashes
-            before_entry = before_by_name[name]
-            after_entry = after_by_name[name]
+            before_entry = before_by_key[key]
+            after_entry = after_by_key[key]
 
             before_png = png_path_for(before_dir, before_entry)
             after_png = png_path_for(after_dir, after_entry)
 
             if not before_png.exists() or not after_png.exists():
-                print(f"  SKIP (missing PNG): {name}", file=sys.stderr)
+                print(f"  SKIP (missing PNG): {key}", file=sys.stderr)
                 continue
 
             before_hash = sha256_file(before_png)
@@ -285,22 +311,26 @@ def main():
                 continue
 
             # Changed — copy images and generate diff
-            b_dst = before_out / (name + ".png")
-            a_dst = after_out / (name + ".png")
+            b_dst = before_out / (safe_key + ".png")
+            a_dst = after_out / (safe_key + ".png")
             shutil.copy2(before_png, b_dst)
             shutil.copy2(after_png, a_dst)
 
             # Copy GIF for display if available
             after_gif = after_dir / after_entry["path"]
-            after_display_path = f"after/img/{name}.png"
+            after_display_path = f"after/img/{safe_key}.png"
             if after_entry["path"].endswith(".gif") and after_gif.exists():
-                gif_dst = after_out / (name + ".gif")
+                gif_dst = after_out / (safe_key + ".gif")
                 shutil.copy2(after_gif, gif_dst)
-                after_display_path = f"after/img/{name}.gif"
+                after_display_path = f"after/img/{safe_key}.gif"
+
+            # Use per-entry dimensions for the diff report
+            entry_w = after_entry.get("width", width)
+            entry_h = after_entry.get("height", height)
 
             pixel_diff = 0
-            diff_path = f"diff/{name}.png"
-            d_dst = diff_out / (name + ".png")
+            diff_path = f"diff/{safe_key}.png"
+            d_dst = diff_out / (safe_key + ".png")
 
             if im_bin:
                 pixel_diff = run_compare(before_png, after_png, d_dst, im_bin)
@@ -308,15 +338,15 @@ def main():
                     pixel_diff = -1  # error marker
 
             changed.append({
-                "name": name,
-                "display_name": after_entry.get("display_name", name),
-                "before_path": f"before/img/{name}.png",
-                "after_path": f"after/img/{name}.png",
+                "name": key,
+                "display_name": after_entry.get("display_name", key),
+                "before_path": f"before/img/{safe_key}.png",
+                "after_path": f"after/img/{safe_key}.png",
                 "after_display_path": after_display_path,
                 "diff_path": diff_path,
                 "pixel_diff": pixel_diff,
             })
-            print(f"  CHANGED: {name} ({pixel_diff} px diff)")
+            print(f"  CHANGED: {key} ({pixel_diff} px diff)")
 
     # Write compare_result.json
     result = {
