@@ -35,6 +35,11 @@ build-screen-runner:
   script:
     - scripts/ci/ci.sh install-screen-runner-deps
     - scripts/ci/ci.sh build-screen-runner
+    - scripts/ci/ci.sh package-screen-runner artifact
+  artifacts:
+    paths:
+      - artifact/
+    expire_in: 30 days
   rules:
     - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
     - if: $CI_PIPELINE_SOURCE == "merge_request_event"

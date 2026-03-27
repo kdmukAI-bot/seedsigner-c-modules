@@ -25,3 +25,12 @@ jobs:
 
       - name: Build screen runner
         run: scripts/ci/ci.sh build-screen-runner
+
+      - name: Package artifact
+        run: scripts/ci/ci.sh package-screen-runner artifact
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: screen-runner-linux
+          path: artifact/
