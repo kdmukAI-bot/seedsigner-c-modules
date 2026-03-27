@@ -30,7 +30,7 @@ jobs:
         run: scripts/ci/ci.sh package-screen-runner artifact
 
       - name: Upload artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v3
         with:
           name: screen-runner-linux
           path: artifact/
