@@ -129,6 +129,19 @@ static SDL_Texture *g_mode_prefix_tex = NULL;  // static "Input mode:" label
 static int          g_mode_prefix_w   = 0;
 static SDL_Rect     g_mode_badge_rect = {};    // logical rect of badge; hit-tested on click
 
+// Title-bar resolution badge (clickable, to the left of mode badge)
+static SDL_Texture *g_res_label_tex   = NULL;  // "480x320" etc — rebuilt on switch
+static int          g_res_label_w     = 0;
+static SDL_Texture *g_res_prefix_tex  = NULL;  // static "Resolution:" label
+static int          g_res_prefix_w    = 0;
+static SDL_Rect     g_res_badge_rect  = {};    // logical rect of badge; hit-tested on click
+static int          g_current_profile_idx = 0;
+
+// LVGL display and draw buffer (globals for resolution switching)
+static lv_display_t *g_disp = NULL;
+static SDL_Texture  *g_viewport_tex = NULL;
+static std::vector<uint8_t> g_draw_buf;
+
 // Status bar (below viewport)
 static SDL_Texture *g_status_tex = NULL;
 static int g_status_tex_w = 0;
@@ -386,6 +399,17 @@ static void rebuild_mode_label(SDL_Renderer *renderer) {
     (void)h;
 }
 
+static void rebuild_resolution_label(SDL_Renderer *renderer) {
+    if (g_res_label_tex) { SDL_DestroyTexture(g_res_label_tex); g_res_label_tex = NULL; }
+    if (!g_font_sm) return;
+    char label[32];
+    snprintf(label, sizeof(label), "%dx%d", g_width, g_height);
+    SDL_Color white = {0xe8, 0xe8, 0xe8, 0xFF};
+    int h = 0;
+    g_res_label_tex = make_text_tex(renderer, g_font_sm, label, white, &g_res_label_w, &h);
+    (void)h;
+}
+
 // Forward declaration (load_scenario defined below).
 static void load_scenario(SDL_Renderer *renderer, size_t idx);
 
@@ -398,6 +422,72 @@ static void toggle_input_mode(SDL_Renderer *renderer) {
     load_scenario(renderer, g_scenario_idx);
     rebuild_mode_label(renderer);
     g_status_text = (next == INPUT_MODE_TOUCH) ? "Mouse mode" : "Keyboard mode";
+    if (g_status_tex) { SDL_DestroyTexture(g_status_tex); g_status_tex = NULL; }
+    g_status_set_ms = SDL_GetTicks();
+}
+
+// Forward declarations for functions defined after main LVGL plumbing section.
+static void lvgl_flush_cb(lv_display_t *disp, const lv_area_t *area, uint8_t *px_map);
+
+static void recalc_layout(SDL_Window *window, SDL_Renderer *renderer) {
+    int content_h = g_label_strip_h + g_label_gap + g_height + g_status_gap + g_status_bar_h;
+    int window_w  = g_viewport_pad + g_chrome_w + g_chrome_gap + g_width + g_viewport_pad;
+    int window_h  = g_viewport_pad + g_title_bar_h + g_title_gap + content_h + g_viewport_pad;
+
+    SDL_SetWindowSize(window, window_w, window_h);
+    SDL_RenderSetLogicalSize(renderer, window_w, window_h);
+
+    int content_top = g_viewport_pad + g_title_bar_h + g_title_gap;
+    int right_col_x = g_viewport_pad + g_chrome_w + g_chrome_gap;
+
+    g_title_rect    = {g_viewport_pad, g_viewport_pad,
+                       g_chrome_w + g_chrome_gap + g_width, g_title_bar_h};
+    g_chrome_rect   = {g_viewport_pad, content_top, g_chrome_w, content_h};
+    g_label_rect    = {right_col_x, content_top, g_width, g_label_strip_h};
+    g_viewport_rect = {right_col_x, content_top + g_label_strip_h + g_label_gap,
+                       g_width, g_height};
+    g_status_rect   = {right_col_x,
+                       content_top + g_label_strip_h + g_label_gap + g_height + g_status_gap,
+                       g_width, g_status_bar_h};
+}
+
+static void switch_resolution(SDL_Window *window, SDL_Renderer *renderer) {
+    g_current_profile_idx = (g_current_profile_idx + 1) % display_profile_count();
+    const DisplayProfile &profile = display_profile_at(g_current_profile_idx);
+
+    set_display(profile.width, profile.height);
+    g_width  = profile.width;
+    g_height = profile.height;
+
+    // Tear down old LVGL display (also deletes all its screens).
+    if (g_disp) lv_display_delete(g_disp);
+
+    // Resize framebuffers.
+    g_fb.assign((size_t)g_width * (size_t)g_height, 0);
+    g_draw_buf.assign((size_t)g_width * (size_t)g_height * 2u, 0);
+
+    // Create new LVGL display at the new resolution.
+    g_disp = lv_display_create(g_width, g_height);
+    lv_display_set_flush_cb(g_disp, lvgl_flush_cb);
+    lv_display_set_color_format(g_disp, LV_COLOR_FORMAT_RGB565);
+    lv_display_set_buffers(g_disp, g_draw_buf.data(), NULL, g_draw_buf.size(),
+                           LV_DISPLAY_RENDER_MODE_FULL);
+
+    // Recreate SDL viewport texture.
+    if (g_viewport_tex) SDL_DestroyTexture(g_viewport_tex);
+    g_viewport_tex = SDL_CreateTexture(renderer,
+        SDL_PIXELFORMAT_ARGB8888, SDL_TEXTUREACCESS_STREAMING, g_width, g_height);
+
+    // Recalculate window size and layout rects.
+    recalc_layout(window, renderer);
+
+    // Update badge and reload current scenario.
+    rebuild_resolution_label(renderer);
+    load_scenario(renderer, g_scenario_idx);
+
+    char msg[64];
+    snprintf(msg, sizeof(msg), "Resolution: %dx%d", g_width, g_height);
+    g_status_text = msg;
     if (g_status_tex) { SDL_DestroyTexture(g_status_tex); g_status_tex = NULL; }
     g_status_set_ms = SDL_GetTicks();
 }
@@ -431,21 +521,22 @@ static void draw_title_bar(SDL_Renderer *renderer) {
         blit_text(renderer, g_title_rest_tex, cur_x, text_y, g_title_rest_w, g_title_tex_h);
     }
 
-    // Right-aligned mode badge: "Input mode:  [Keyboard]" or "Input mode:  [Mouse]"
-    if (g_mode_label_tex) {
-        const int PAD_X = 10, PAD_Y = 4;
+    // Right-aligned badges: [Resolution: 480x320]  [Input mode: Keyboard]
+    const int PAD_X = 10, PAD_Y = 4;
+    int right_edge = g_title_rect.x + g_title_rect.w - 8;
 
+    // --- Mode badge (rightmost) ---
+    if (g_mode_label_tex) {
         int label_phys_h = 0;
         { int tw = 0; SDL_QueryTexture(g_mode_label_tex, NULL, NULL, &tw, &label_phys_h); }
         int log_label_w = (int)(g_mode_label_w / g_dpi_scale);
         int log_label_h = (int)(label_phys_h / g_dpi_scale);
         int badge_w = log_label_w + PAD_X * 2;
         int badge_h = log_label_h + PAD_Y * 2;
-        int badge_x = g_title_rect.x + g_title_rect.w - badge_w - 8;
+        int badge_x = right_edge - badge_w;
         int badge_y = g_title_rect.y + (g_title_rect.h - badge_h) / 2;
         g_mode_badge_rect = {badge_x, badge_y, badge_w, badge_h};
 
-        // "Input mode:" prefix to the left of the badge
         if (g_mode_prefix_tex) {
             int prefix_phys_h = 0;
             { int tw = 0; SDL_QueryTexture(g_mode_prefix_tex, NULL, NULL, &tw, &prefix_phys_h); }
@@ -455,9 +546,11 @@ static void draw_title_bar(SDL_Renderer *renderer) {
             int prefix_y = g_title_rect.y + (g_title_rect.h - log_prefix_h) / 2;
             blit_text(renderer, g_mode_prefix_tex, prefix_x, prefix_y,
                       g_mode_prefix_w, prefix_phys_h);
+            right_edge = prefix_x - 14;
+        } else {
+            right_edge = badge_x - 14;
         }
 
-        // Colored badge fill + border
         bool is_touch = (input_profile_get_mode() == INPUT_MODE_TOUCH);
         SDL_SetRenderDrawColor(renderer,
             is_touch ? 0xc8 : 0x3d,
@@ -467,10 +560,42 @@ static void draw_title_bar(SDL_Renderer *renderer) {
         SDL_SetRenderDrawColor(renderer, 0x80, 0x80, 0x80, 0xFF);
         SDL_RenderDrawRect(renderer, &g_mode_badge_rect);
 
-        // Mode text centered in badge
         blit_text(renderer, g_mode_label_tex,
                   badge_x + PAD_X, badge_y + PAD_Y,
                   g_mode_label_w, label_phys_h);
+    }
+
+    // --- Resolution badge (to the left of mode badge) ---
+    if (g_res_label_tex) {
+        int label_phys_h = 0;
+        { int tw = 0; SDL_QueryTexture(g_res_label_tex, NULL, NULL, &tw, &label_phys_h); }
+        int log_label_w = (int)(g_res_label_w / g_dpi_scale);
+        int log_label_h = (int)(label_phys_h / g_dpi_scale);
+        int badge_w = log_label_w + PAD_X * 2;
+        int badge_h = log_label_h + PAD_Y * 2;
+        int badge_x = right_edge - badge_w;
+        int badge_y = g_title_rect.y + (g_title_rect.h - badge_h) / 2;
+        g_res_badge_rect = {badge_x, badge_y, badge_w, badge_h};
+
+        if (g_res_prefix_tex) {
+            int prefix_phys_h = 0;
+            { int tw = 0; SDL_QueryTexture(g_res_prefix_tex, NULL, NULL, &tw, &prefix_phys_h); }
+            int log_prefix_w = (int)(g_res_prefix_w / g_dpi_scale);
+            int log_prefix_h = (int)(prefix_phys_h / g_dpi_scale);
+            int prefix_x = badge_x - log_prefix_w - 6;
+            int prefix_y = g_title_rect.y + (g_title_rect.h - log_prefix_h) / 2;
+            blit_text(renderer, g_res_prefix_tex, prefix_x, prefix_y,
+                      g_res_prefix_w, prefix_phys_h);
+        }
+
+        SDL_SetRenderDrawColor(renderer, 0x2c, 0x5a, 0x2c, 0xFF);
+        SDL_RenderFillRect(renderer, &g_res_badge_rect);
+        SDL_SetRenderDrawColor(renderer, 0x80, 0x80, 0x80, 0xFF);
+        SDL_RenderDrawRect(renderer, &g_res_badge_rect);
+
+        blit_text(renderer, g_res_label_tex,
+                  badge_x + PAD_X, badge_y + PAD_Y,
+                  g_res_label_w, label_phys_h);
     }
 }
 
@@ -763,9 +888,9 @@ int main(int argc, char **argv) {
                        content_top + g_label_strip_h + g_label_gap + g_height + g_status_gap,
                        g_width, g_status_bar_h};
 
-    SDL_Texture *texture = SDL_CreateTexture(renderer,
+    g_viewport_tex = SDL_CreateTexture(renderer,
         SDL_PIXELFORMAT_ARGB8888, SDL_TEXTUREACCESS_STREAMING, g_width, g_height);
-    if (!texture) { SDL_Log("Texture failed: %s", SDL_GetError()); return 1; }
+    if (!g_viewport_tex) { SDL_Log("Texture failed: %s", SDL_GetError()); return 1; }
 
     // SDL_ttf init + fonts loaded at physical size (dpi_scale × visual size).
     if (TTF_Init() == 0) {
@@ -822,17 +947,24 @@ int main(int argc, char **argv) {
     }
 
     // LVGL init.
+    // Find which profile matches the compile-time default resolution.
+    for (int i = 0; i < display_profile_count(); ++i) {
+        const DisplayProfile &p = display_profile_at(i);
+        if (p.width == g_width && p.height == g_height) {
+            g_current_profile_idx = i;
+            break;
+        }
+    }
     set_display(g_width, g_height);
     lv_init();
     g_fb.assign((size_t)g_width * (size_t)g_height, 0);
 
-    lv_display_t *disp = lv_display_create(g_width, g_height);
-    lv_display_set_flush_cb(disp, lvgl_flush_cb);
-    lv_display_set_color_format(disp, LV_COLOR_FORMAT_RGB565);
-    static std::vector<uint8_t> draw_buf((size_t)g_width * (size_t)g_height * 2u);
-    lv_display_set_buffers(disp, draw_buf.data(), NULL, draw_buf.size(),
+    g_draw_buf.assign((size_t)g_width * (size_t)g_height * 2u, 0);
+    g_disp = lv_display_create(g_width, g_height);
+    lv_display_set_flush_cb(g_disp, lvgl_flush_cb);
+    lv_display_set_color_format(g_disp, LV_COLOR_FORMAT_RGB565);
+    lv_display_set_buffers(g_disp, g_draw_buf.data(), NULL, g_draw_buf.size(),
                            LV_DISPLAY_RENDER_MODE_FULL);
-    (void)disp;
 
     lv_indev_t *kb_indev = lv_indev_create();
     lv_indev_set_type(kb_indev, LV_INDEV_TYPE_KEYPAD);
@@ -852,9 +984,12 @@ int main(int argc, char **argv) {
         int h = 0;
         g_mode_prefix_tex = make_text_tex(renderer, g_font_sm, "Input mode:",
                                           dim, &g_mode_prefix_w, &h);
+        g_res_prefix_tex = make_text_tex(renderer, g_font_sm, "Resolution:",
+                                         dim, &g_res_prefix_w, &h);
         (void)h;
     }
     rebuild_mode_label(renderer);
+    rebuild_resolution_label(renderer);
 
     load_scenario(renderer, 0);
     SDL_SetWindowTitle(window, "screen_runner");
@@ -933,11 +1068,18 @@ int main(int argc, char **argv) {
                 }
 
                 // Mode badge click (in title bar)
-                bool over_badge = (bx >= g_mode_badge_rect.x &&
-                                   bx < g_mode_badge_rect.x + g_mode_badge_rect.w &&
-                                   by >= g_mode_badge_rect.y &&
-                                   by < g_mode_badge_rect.y + g_mode_badge_rect.h);
-                if (over_badge) toggle_input_mode(renderer);
+                bool over_mode_badge = (bx >= g_mode_badge_rect.x &&
+                                        bx < g_mode_badge_rect.x + g_mode_badge_rect.w &&
+                                        by >= g_mode_badge_rect.y &&
+                                        by < g_mode_badge_rect.y + g_mode_badge_rect.h);
+                if (over_mode_badge) toggle_input_mode(renderer);
+
+                // Resolution badge click (in title bar)
+                bool over_res_badge = (bx >= g_res_badge_rect.x &&
+                                       bx < g_res_badge_rect.x + g_res_badge_rect.w &&
+                                       by >= g_res_badge_rect.y &&
+                                       by < g_res_badge_rect.y + g_res_badge_rect.h);
+                if (over_res_badge) switch_resolution(window, renderer);
 
                 // Viewport press (touch/mouse mode only)
                 bool over_viewport = (bx >= g_viewport_rect.x &&
@@ -962,6 +1104,8 @@ int main(int argc, char **argv) {
                     load_scenario(renderer, (g_scenario_idx + 1) % g_scenarios.size());
                 } else if (key == SDLK_t) {
                     toggle_input_mode(renderer);
+                } else if (key == SDLK_r) {
+                    switch_resolution(window, renderer);
                 } else {
                     uint32_t mapped = map_sdl_key(key);
                     if (mapped != 0) { g_pending_key = mapped; g_key_ready = true; }
@@ -980,7 +1124,7 @@ int main(int argc, char **argv) {
             if (g_status_tex) { SDL_DestroyTexture(g_status_tex); g_status_tex = NULL; }
         }
 
-        blit_to_texture(texture);
+        blit_to_texture(g_viewport_tex);
 
         SDL_SetRenderDrawColor(renderer, 18, 18, 18, 255);
         SDL_RenderClear(renderer);
@@ -989,7 +1133,7 @@ int main(int argc, char **argv) {
         draw_chrome(renderer);
         draw_label_strip(renderer);
         draw_status_bar(renderer);
-        SDL_RenderCopy(renderer, texture, NULL, &g_viewport_rect);
+        SDL_RenderCopy(renderer, g_viewport_tex, NULL, &g_viewport_rect);
 
         SDL_SetRenderDrawColor(renderer, 48, 48, 48, 255);
         SDL_RenderDrawRect(renderer, &g_chrome_rect);
@@ -1002,6 +1146,8 @@ int main(int argc, char **argv) {
     if (g_logo_tex)         SDL_DestroyTexture(g_logo_tex);
     if (g_mode_label_tex)   SDL_DestroyTexture(g_mode_label_tex);
     if (g_mode_prefix_tex)  SDL_DestroyTexture(g_mode_prefix_tex);
+    if (g_res_label_tex)    SDL_DestroyTexture(g_res_label_tex);
+    if (g_res_prefix_tex)   SDL_DestroyTexture(g_res_prefix_tex);
     if (g_status_tex)       SDL_DestroyTexture(g_status_tex);
     if (g_label_strip_tex)  SDL_DestroyTexture(g_label_strip_tex);
     if (g_title_brand_tex)  SDL_DestroyTexture(g_title_brand_tex);
@@ -1016,7 +1162,7 @@ int main(int argc, char **argv) {
     if (g_font_title)  TTF_CloseFont(g_font_title);
     TTF_Quit();
 
-    SDL_DestroyTexture(texture);
+    SDL_DestroyTexture(g_viewport_tex);
     SDL_DestroyRenderer(renderer);
     SDL_DestroyWindow(window);
     SDL_Quit();
