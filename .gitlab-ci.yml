@@ -1,0 +1,39 @@
+# GitLab CI — Screenshot generation and Pages deployment.
+#
+# Builds and deploys screenshots on pushes to main.
+# PR comparison is not yet implemented for GitLab (uses artifact-based Pages,
+# making baseline retrieval different from the branch-based approach on other
+# platforms). Contributions welcome.
+
+stages:
+  - build
+  - pages
+
+build-screenshots:
+  stage: build
+  image: ubuntu:24.04
+  script:
+    - scripts/ci/screenshots.sh install-deps
+    - git submodule update --init --recursive
+    - scripts/ci/screenshots.sh build
+    - scripts/ci/screenshots.sh generate
+  artifacts:
+    paths:
+      - tools/screenshot_generator/screenshots/
+    expire_in: 7 days
+  rules:
+    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
+    - if: $CI_PIPELINE_SOURCE == "merge_request_event"
+
+pages:
+  stage: pages
+  dependencies:
+    - build-screenshots
+  script:
+    - mkdir -p public
+    - cp -r tools/screenshot_generator/screenshots/* public/
+  artifacts:
+    paths:
+      - public
+  rules:
+    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH

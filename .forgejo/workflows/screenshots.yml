@@ -1,0 +1,175 @@
+# Forgejo / Codeberg — Screenshot generation, Pages deployment, and PR comparison.
+#
+# Works on both Codeberg and self-hosted Forgejo instances with Actions enabled.
+# Pages deployment requires a "pages" branch and Forgejo Pages enabled on the
+# instance (see CLAUDE.md or repo docs for self-hosted setup instructions).
+#
+# Uses the Gitea API (shared by Forgejo and Codeberg) for PR comments.
+
+name: Build & Deploy Screenshots
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    types: [opened, synchronize, reopened, closed]
+
+jobs:
+  build:
+    if: github.event_name != 'pull_request' || github.event.action != 'closed'
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout with submodules
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+          fetch-depth: 1
+
+      - name: Install dependencies
+        run: scripts/ci/screenshots.sh install-deps
+
+      - name: Build screenshot generator
+        run: scripts/ci/screenshots.sh build
+
+      - name: Generate screenshots
+        run: scripts/ci/screenshots.sh generate
+
+      - name: Upload screenshot artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: screenshots
+          path: tools/screenshot_generator/screenshots/
+
+  deploy-stable:
+    needs: build
+    runs-on: ubuntu-24.04
+    if: github.event_name == 'push'
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+
+      - name: Download screenshot artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: screenshots
+          path: screenshots
+
+      - name: Deploy to pages branch
+        run: scripts/ci/screenshots.sh deploy-pages screenshots pages
+        env:
+          GIT_AUTHOR_NAME: ci-bot
+          GIT_AUTHOR_EMAIL: ci-bot@noreply
+          GIT_COMMITTER_NAME: ci-bot
+          GIT_COMMITTER_EMAIL: ci-bot@noreply
+
+  compare-and-deploy-pr:
+    needs: build
+    runs-on: ubuntu-24.04
+    if: github.event_name == 'pull_request' && github.event.action != 'closed'
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+
+      - name: Download screenshot artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: screenshots
+          path: after
+
+      - name: Checkout pages baseline
+        continue-on-error: true
+        run: |
+          git clone --depth 1 --branch pages \
+            "$(git remote get-url origin)" baseline 2>/dev/null || \
+            echo "No pages branch found; comparison will treat all screenshots as new."
+
+      - name: Install comparison dependencies
+        run: sudo apt-get update && sudo apt-get install -y imagemagick python3
+
+      - name: Run screenshot comparison
+        run: |
+          scripts/ci/screenshots.sh compare \
+            --before-dir baseline \
+            --after-dir after \
+            --out-dir report \
+            --pr-number ${{ github.event.pull_request.number }}
+
+      - name: Deploy diff report to pages branch
+        run: |
+          scripts/ci/screenshots.sh deploy-pages \
+            report pages "previews/pr-${{ github.event.pull_request.number }}"
+
+      - name: Post PR comment
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          PR_NUMBER="${{ github.event.pull_request.number }}"
+          API_URL="${GITHUB_API_URL:-$GITHUB_SERVER_URL/api/v1}"
+          REPO="${GITHUB_REPOSITORY}"
+          MARKER="<!-- ss-lvgl-render-tests -->"
+
+          # Build comment body from comparison results.
+          if [ -f report/compare_result.json ]; then
+            CHANGED=$(python3 -c "import json; r=json.load(open('report/compare_result.json')); print(r['summary']['changed'])")
+            NEW=$(python3 -c "import json; r=json.load(open('report/compare_result.json')); print(r['summary']['new'])")
+            REMOVED=$(python3 -c "import json; r=json.load(open('report/compare_result.json')); print(r['summary']['removed'])")
+            UNCHANGED=$(python3 -c "import json; r=json.load(open('report/compare_result.json')); print(r['summary']['unchanged'])")
+
+            if [ "$CHANGED" = "0" ] && [ "$NEW" = "0" ] && [ "$REMOVED" = "0" ]; then
+              BODY="${MARKER}\n### SeedSigner LVGL screen tests\nNo screenshots affected by this PR (${UNCHANGED} unchanged)."
+            else
+              PARTS=""
+              [ "$CHANGED" != "0" ] && PARTS="**${CHANGED}** changed"
+              [ "$NEW" != "0" ] && PARTS="${PARTS:+$PARTS, }**${NEW}** new"
+              [ "$REMOVED" != "0" ] && PARTS="${PARTS:+$PARTS, }**${REMOVED}** removed"
+              [ "$UNCHANGED" != "0" ] && PARTS="${PARTS}, ${UNCHANGED} unchanged"
+              BODY="${MARKER}\n### SeedSigner LVGL screen tests\nScreenshot diff: ${PARTS}"
+            fi
+          else
+            BODY="${MARKER}\n### SeedSigner LVGL screen tests\nFailed to read comparison results."
+          fi
+
+          # Find existing comment with our marker, update or create.
+          EXISTING_ID=$(curl -sf \
+            -H "Authorization: token $GITHUB_TOKEN" \
+            "$API_URL/repos/$REPO/issues/$PR_NUMBER/comments?limit=50" \
+            | python3 -c "
+          import json, sys
+          comments = json.load(sys.stdin)
+          for c in comments:
+              if '$MARKER' in c.get('body', ''):
+                  print(c['id'])
+                  break
+          " 2>/dev/null || true)
+
+          BODY_JSON=$(printf '%s' "$BODY" | python3 -c "import json,sys; print(json.dumps({'body': sys.stdin.read()}))")
+
+          if [ -n "$EXISTING_ID" ]; then
+            curl -sf -X PATCH \
+              -H "Authorization: token $GITHUB_TOKEN" \
+              -H "Content-Type: application/json" \
+              -d "$BODY_JSON" \
+              "$API_URL/repos/$REPO/issues/comments/$EXISTING_ID" > /dev/null
+          else
+            curl -sf -X POST \
+              -H "Authorization: token $GITHUB_TOKEN" \
+              -H "Content-Type: application/json" \
+              -d "$BODY_JSON" \
+              "$API_URL/repos/$REPO/issues/$PR_NUMBER/comments" > /dev/null
+          fi
+
+  cleanup-pr-preview:
+    runs-on: ubuntu-24.04
+    if: github.event_name == 'pull_request' && github.event.action == 'closed'
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+
+      - name: Remove PR preview
+        run: scripts/ci/screenshots.sh cleanup-pages pages "previews/pr-${{ github.event.pull_request.number }}"

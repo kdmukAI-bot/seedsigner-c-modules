@@ -25,17 +25,13 @@ jobs:
           fetch-depth: 1
 
       - name: Install dependencies
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y cmake build-essential libpng-dev imagemagick
+        run: scripts/ci/screenshots.sh install-deps
 
       - name: Build screenshot generator
-        run: |
-          cmake -S tools/screenshot_generator -B tools/screenshot_generator/build -DCMAKE_BUILD_TYPE=Release
-          cmake --build tools/screenshot_generator/build -j"$(nproc)"
+        run: scripts/ci/screenshots.sh build
 
       - name: Generate screenshots
-        run: tools/screenshot_generator/build/screenshot_gen
+        run: scripts/ci/screenshots.sh generate
 
       - name: Upload screenshot artifacts
         uses: actions/upload-artifact@v4
@@ -89,7 +85,7 @@ jobs:
 
       - name: Run screenshot comparison
         run: |
-          python3 tools/screenshot_generator/compare_screenshots.py \
+          scripts/ci/screenshots.sh compare \
             --before-dir baseline \
             --after-dir after \
             --out-dir report \
@@ -162,23 +158,10 @@ jobs:
     runs-on: ubuntu-24.04
     if: github.event_name == 'pull_request' && github.event.action == 'closed'
     steps:
-      - name: Checkout gh-pages branch
+      - name: Checkout repo
         uses: actions/checkout@v4
         with:
-          ref: gh-pages
+          fetch-depth: 1
 
-      - name: Remove PR preview directory
-        env:
-          PR_NUM: ${{ github.event.number }}
-        run: |
-          TARGET="previews/pr-${PR_NUM}"
-          if [ -d "$TARGET" ]; then
-            rm -rf "$TARGET"
-            git config user.name "github-actions[bot]"
-            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-            git add -A
-            git commit -m "pages: remove preview for closed PR #${PR_NUM}"
-            git push
-          else
-            echo "No preview directory for PR #${PR_NUM}; nothing to clean."
-          fi
+      - name: Remove PR preview
+        run: scripts/ci/screenshots.sh cleanup-pages gh-pages "previews/pr-${{ github.event.number }}"
