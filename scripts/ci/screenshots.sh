@@ -11,8 +11,14 @@ shift || true
 
 case "$COMMAND" in
   install-deps)
-    sudo apt-get update
-    sudo apt-get install -y cmake build-essential libpng-dev imagemagick python3
+    # Use sudo if available (GitHub Actions, Forgejo/Codeberg runners);
+    # fall back to direct invocation (GitLab Docker containers run as root).
+    SUDO=""
+    if command -v sudo >/dev/null 2>&1; then
+      SUDO="sudo"
+    fi
+    $SUDO apt-get update
+    $SUDO apt-get install -y cmake build-essential libpng-dev imagemagick python3
     ;;
 
   build)

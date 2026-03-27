@@ -12,9 +12,10 @@ stages:
 build-screenshots:
   stage: build
   image: ubuntu:24.04
+  variables:
+    GIT_SUBMODULE_STRATEGY: recursive
   script:
     - scripts/ci/screenshots.sh install-deps
-    - git submodule update --init --recursive
     - scripts/ci/screenshots.sh build
     - scripts/ci/screenshots.sh generate
   artifacts:
