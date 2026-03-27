@@ -4,6 +4,9 @@
 # Pages deployment requires a "pages" branch and Forgejo Pages enabled on the
 # instance (see CLAUDE.md or repo docs for self-hosted setup instructions).
 #
+# Uses single jobs (no artifact upload/download) for compatibility with Forgejo
+# instances that don't support the GitHub artifact API.
+#
 # Uses the Gitea API (shared by Forgejo and Codeberg) for PR comments.
 
 name: Build & Deploy Screenshots
@@ -15,8 +18,8 @@ on:
     types: [opened, synchronize, reopened, closed]
 
 jobs:
-  build:
-    if: github.event_name != 'pull_request' || github.event.action != 'closed'
+  build-and-deploy:
+    if: github.event_name == 'push'
     runs-on: ubuntu-24.04
     steps:
       - name: Checkout with submodules
@@ -34,51 +37,27 @@ jobs:
       - name: Generate screenshots
         run: scripts/ci/screenshots.sh generate
 
-      - name: Upload screenshot artifacts
-        uses: actions/upload-artifact@v4
-        with:
-          name: screenshots
-          path: tools/screenshot_generator/screenshots/
-
-  deploy-stable:
-    needs: build
-    runs-on: ubuntu-24.04
-    if: github.event_name == 'push'
-    steps:
-      - name: Checkout repo
-        uses: actions/checkout@v4
-        with:
-          fetch-depth: 1
-
-      - name: Download screenshot artifacts
-        uses: actions/download-artifact@v4
-        with:
-          name: screenshots
-          path: screenshots
-
       - name: Deploy to pages branch
-        run: scripts/ci/screenshots.sh deploy-pages screenshots pages
-        env:
-          GIT_AUTHOR_NAME: ci-bot
-          GIT_AUTHOR_EMAIL: ci-bot@noreply
-          GIT_COMMITTER_NAME: ci-bot
-          GIT_COMMITTER_EMAIL: ci-bot@noreply
+        run: scripts/ci/screenshots.sh deploy-pages tools/screenshot_generator/screenshots pages
 
-  compare-and-deploy-pr:
-    needs: build
-    runs-on: ubuntu-24.04
+  build-and-compare-pr:
     if: github.event_name == 'pull_request' && github.event.action != 'closed'
+    runs-on: ubuntu-24.04
     steps:
-      - name: Checkout repo
+      - name: Checkout with submodules
         uses: actions/checkout@v4
         with:
+          submodules: recursive
           fetch-depth: 1
 
-      - name: Download screenshot artifacts
-        uses: actions/download-artifact@v4
-        with:
-          name: screenshots
-          path: after
+      - name: Install dependencies
+        run: scripts/ci/screenshots.sh install-deps
+
+      - name: Build screenshot generator
+        run: scripts/ci/screenshots.sh build
+
+      - name: Generate screenshots
+        run: scripts/ci/screenshots.sh generate
 
       - name: Checkout pages baseline
         continue-on-error: true
@@ -87,18 +66,16 @@ jobs:
             "$(git remote get-url origin)" baseline 2>/dev/null || \
             echo "No pages branch found; comparison will treat all screenshots as new."
 
-      - name: Install comparison dependencies
-        run: sudo apt-get update && sudo apt-get install -y imagemagick python3
-
       - name: Run screenshot comparison
         run: |
           scripts/ci/screenshots.sh compare \
             --before-dir baseline \
-            --after-dir after \
+            --after-dir tools/screenshot_generator/screenshots \
             --out-dir report \
             --pr-number ${{ github.event.pull_request.number }}
 
       - name: Deploy diff report to pages branch
+        continue-on-error: true
         run: |
           scripts/ci/screenshots.sh deploy-pages \
             report pages "previews/pr-${{ github.event.pull_request.number }}"
