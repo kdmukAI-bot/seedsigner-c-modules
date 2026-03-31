@@ -22,6 +22,17 @@ struct FontSet {
 };
 
 static FontSet fonts_for_multiplier(int px_mult) {
+#ifdef SUPPORT_DISPLAY_HEIGHT_480
+    if (px_mult == PX_MULTIPLIER_200) {
+        return {
+            &opensans_semibold_20_4bpp_200x,
+            &opensans_semibold_18_4bpp_200x,
+            &opensans_regular_17_4bpp_200x,
+            &seedsigner_icons_24_4bpp_200x,
+            &seedsigner_icons_36_4bpp_200x,
+        };
+    }
+#endif
 #ifdef SUPPORT_DISPLAY_HEIGHT_320
     if (px_mult == PX_MULTIPLIER_150) {
         return {
@@ -53,6 +64,7 @@ static DisplayProfile make_profile(int width, int height) {
     switch (height) {
         case 240: px_mult = PX_MULTIPLIER_100; break;
         case 320: px_mult = PX_MULTIPLIER_150; break;
+        case 480: px_mult = PX_MULTIPLIER_200; break;
         default:
             fprintf(stderr, "FATAL: no PX_MULTIPLIER for height=%d\n", height);
             abort();
@@ -99,6 +111,10 @@ static const DisplayProfile profile_320x240 = make_profile(320, 240);
 static const DisplayProfile profile_480x320 = make_profile(480, 320);
 #endif
 
+#ifdef SUPPORT_DISPLAY_HEIGHT_480
+static const DisplayProfile profile_800x480 = make_profile(800, 480);
+#endif
+
 // ---------------------------------------------------------------------------
 // Profile lookup table
 // ---------------------------------------------------------------------------
@@ -115,6 +131,9 @@ static const ProfileEntry profile_table[] = {
 #endif
 #ifdef SUPPORT_DISPLAY_HEIGHT_320
     {480, 320, &profile_480x320},
+#endif
+#ifdef SUPPORT_DISPLAY_HEIGHT_480
+    {800, 480, &profile_800x480},
 #endif
 };
 

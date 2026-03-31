@@ -326,6 +326,7 @@ lv_obj_t* button(lv_obj_t* lv_parent, const char* text, lv_obj_t* align_to) {
         lv_obj_add_event_cb(lv_button, label_clip_on_defocus, LV_EVENT_DEFOCUSED, NULL);
     }
     lv_label_set_text(label, text);
+    lv_obj_align(label, LV_ALIGN_CENTER, 0, 0);
 
     // Wire up gesture-aware input callback
     lv_obj_add_event_cb(lv_button, button_toggle_callback, LV_EVENT_PRESSED, NULL);

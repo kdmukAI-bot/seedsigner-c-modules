@@ -26,6 +26,9 @@ endif()
 if(NOT DEFINED SUPPORT_DISPLAY_HEIGHT_320)
     set(SUPPORT_DISPLAY_HEIGHT_320 ON)
 endif()
+if(NOT DEFINED SUPPORT_DISPLAY_HEIGHT_480)
+    set(SUPPORT_DISPLAY_HEIGHT_480 ON)
+endif()
 
 # Repo layout assumptions:
 # - this file lives at seedsigner-c-modules/tools/screenshot_generator
@@ -82,6 +85,15 @@ if(SUPPORT_DISPLAY_HEIGHT_320)
       "${SEEDSIGNER_DIR}/fonts/seedsigner_icons_36_4bpp_150x.c"
     )
 endif()
+if(SUPPORT_DISPLAY_HEIGHT_480)
+    list(APPEND SEEDSIGNER_FONT_SOURCES
+      "${SEEDSIGNER_DIR}/fonts/opensans_semibold_20_4bpp_200x.c"
+      "${SEEDSIGNER_DIR}/fonts/opensans_semibold_18_4bpp_200x.c"
+      "${SEEDSIGNER_DIR}/fonts/opensans_regular_17_4bpp_200x.c"
+      "${SEEDSIGNER_DIR}/fonts/seedsigner_icons_24_4bpp_200x.c"
+      "${SEEDSIGNER_DIR}/fonts/seedsigner_icons_36_4bpp_200x.c"
+    )
+endif()
 
 set(SEEDSIGNER_IMAGE_SOURCES
   "${SEEDSIGNER_DIR}/images/seedsigner_logo_img.c"
@@ -114,6 +126,7 @@ target_compile_definitions(screenshot_gen PRIVATE
   DISPLAY_HEIGHT=${DISPLAY_HEIGHT}
   $<$<BOOL:${SUPPORT_DISPLAY_HEIGHT_240}>:SUPPORT_DISPLAY_HEIGHT_240>
   $<$<BOOL:${SUPPORT_DISPLAY_HEIGHT_320}>:SUPPORT_DISPLAY_HEIGHT_320>
+  $<$<BOOL:${SUPPORT_DISPLAY_HEIGHT_480}>:SUPPORT_DISPLAY_HEIGHT_480>
 )
 
 target_include_directories(screenshot_gen PRIVATE

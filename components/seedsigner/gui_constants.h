@@ -9,13 +9,15 @@
  * the Pi Zero's 240px-height display, so PX_MULTIPLIER=100 is a no-op: the UI
  * renders at exactly the dimensions originally defined for that hardware.
  *
- * At 320px height we use PX_MULTIPLIER=150, which scales up slightly more than
- * the direct 320/240 ratio (~1.33) would suggest. This is an opinionated choice
- * for aesthetic reasons -- elements feel better slightly larger on the higher-res
- * screen rather than just linearly scaled.
+ * At 320px height (3.5" display) we use PX_MULTIPLIER=150, which scales up
+ * slightly more than the direct 320/240 ratio (~1.33) would suggest. This is an
+ * opinionated choice for aesthetic reasons -- elements feel better slightly larger
+ * on the higher-res screen rather than just linearly scaled.
  *
- * It remains to be seen whether displays beyond 320px height will need their own
- * PX_MULTIPLIER values or whether 150 will hold as screen sizes scale up.
+ * At 480px height (4.3" display) we use PX_MULTIPLIER=200. This was chosen to
+ * match the physical size of UI elements (measured with a tape measure) between
+ * the 3.5" (165 DPI) and 4.3" (217 DPI) displays -- a button is ~0.29" tall on
+ * both screens.
  *
  * The height-to-PX_MULTIPLIER mapping lives here so it is consistent across all
  * build targets (ESP32, Pi Zero, desktop tools). Callers only need to supply
@@ -28,13 +30,14 @@
 #include <string>
 #include "lvgl.h"
 
-#if !defined(SUPPORT_DISPLAY_HEIGHT_240) && !defined(SUPPORT_DISPLAY_HEIGHT_320)
+#if !defined(SUPPORT_DISPLAY_HEIGHT_240) && !defined(SUPPORT_DISPLAY_HEIGHT_320) && !defined(SUPPORT_DISPLAY_HEIGHT_480)
 #error "At least one SUPPORT_DISPLAY_HEIGHT_* flag must be defined"
 #endif
 
 // Named PX_MULTIPLIER values — one per supported display height.
 const int PX_MULTIPLIER_100 = 100;   // 240px height (Pi Zero): no scaling
-const int PX_MULTIPLIER_150 = 150;   // 320px height: aesthetic upscale
+const int PX_MULTIPLIER_150 = 150;   // 320px height (3.5" ESP32): aesthetic upscale
+const int PX_MULTIPLIER_200 = 200;   // 480px height (4.3" ESP32): matched physical sizing
 
 // ---------------------------------------------------------------------------
 // Font declarations for supported display heights
@@ -53,6 +56,14 @@ LV_FONT_DECLARE(opensans_semibold_18_4bpp_150x);
 LV_FONT_DECLARE(opensans_regular_17_4bpp_150x);
 LV_FONT_DECLARE(seedsigner_icons_24_4bpp_150x);
 LV_FONT_DECLARE(seedsigner_icons_36_4bpp_150x);
+#endif
+
+#ifdef SUPPORT_DISPLAY_HEIGHT_480
+LV_FONT_DECLARE(opensans_semibold_20_4bpp_200x);
+LV_FONT_DECLARE(opensans_semibold_18_4bpp_200x);
+LV_FONT_DECLARE(opensans_regular_17_4bpp_200x);
+LV_FONT_DECLARE(seedsigner_icons_24_4bpp_200x);
+LV_FONT_DECLARE(seedsigner_icons_36_4bpp_200x);
 #endif
 
 // ---------------------------------------------------------------------------
