@@ -4,16 +4,20 @@ set(component_requires "lvgl" "nlohmann_json")
 
 
 list(APPEND srcs
+    "fonts/opensans_semibold_26_4bpp.c"
     "fonts/opensans_regular_17_4bpp.c"
     "fonts/opensans_semibold_18_4bpp.c"
     "fonts/opensans_semibold_20_4bpp.c"
     "fonts/seedsigner_icons_24_4bpp.c"
+    "fonts/seedsigner_icons_48_4bpp.c"
+    "fonts/seedsigner_icons_36_4bpp.c"
+    "fonts/opensans_semibold_26_4bpp_150x.c"
     "fonts/opensans_regular_17_4bpp_150x.c"
     "fonts/opensans_semibold_18_4bpp_150x.c"
     "fonts/opensans_semibold_20_4bpp_150x.c"
     "fonts/seedsigner_icons_24_4bpp_150x.c"
-    "fonts/seedsigner_icons_36_4bpp.c"
     "fonts/seedsigner_icons_36_4bpp_150x.c"
+    "fonts/opensans_semibold_26_4bpp_200x.c"
     "fonts/opensans_regular_17_4bpp_200x.c"
     "fonts/opensans_semibold_18_4bpp_200x.c"
     "fonts/opensans_semibold_20_4bpp_200x.c"

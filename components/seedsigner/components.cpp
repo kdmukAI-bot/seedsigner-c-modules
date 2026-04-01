@@ -63,7 +63,7 @@ static lv_obj_t* top_nav_icon_button(lv_obj_t* lv_parent, const char* icon, lv_a
     return btn;
 }
 
-lv_obj_t* top_nav(lv_obj_t* lv_parent, const char *title, bool show_back_button, bool show_power_button, lv_obj_t **out_back_btn, lv_obj_t **out_power_btn) {
+lv_obj_t* top_nav(lv_obj_t* lv_parent, const char *title, bool show_back_button, bool show_power_button, lv_obj_t **out_back_btn, lv_obj_t **out_power_btn, const lv_font_t *title_font) {
 
     lv_parent = lv_parent ? lv_parent : lv_scr_act();
     lv_obj_t* lv_top_nav = lv_obj_create(lv_parent);
@@ -98,7 +98,7 @@ lv_obj_t* top_nav(lv_obj_t* lv_parent, const char *title, bool show_back_button,
     lv_label_set_long_mode(label, LV_LABEL_LONG_SCROLL_CIRCULAR);
 
     lv_obj_set_style_text_color(label, lv_color_hex(BODY_FONT_COLOR), LV_PART_MAIN);
-    lv_obj_set_style_text_font(label, &TOP_NAV_TITLE_FONT, LV_PART_MAIN);
+    lv_obj_set_style_text_font(label, title_font ? title_font : &TOP_NAV_TITLE_FONT, LV_PART_MAIN);
     lv_obj_set_style_text_align(label, LV_TEXT_ALIGN_CENTER, LV_PART_MAIN);
 
     lv_obj_update_layout(lv_top_nav);
@@ -345,6 +345,12 @@ lv_obj_t* button(lv_obj_t* lv_parent, const char* text, lv_obj_t* align_to) {
 lv_obj_t* large_icon_button(lv_obj_t* lv_parent, const char* icon, const char* text, lv_obj_t* align_to) {
     // Start from a regular button (handles styling, label, events, scroll behavior).
     lv_obj_t* lv_button = button(lv_parent, text, align_to);
+
+    // Override the text label font: at 240px, large buttons use 20px (matching the
+    // Python LargeButtonScreen's get_button_font_size() + 2). At larger displays
+    // this resolves to the regular button font — no change needed there.
+    lv_obj_t* text_label = lv_obj_get_child(lv_button, 0);
+    lv_obj_set_style_text_font(text_label, &LARGE_BUTTON_FONT, LV_PART_MAIN);
 
     // Override height for the larger main menu buttons.
     lv_obj_set_height(lv_button, MAIN_MENU_BUTTON_HEIGHT);

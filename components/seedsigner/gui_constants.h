@@ -43,14 +43,17 @@ const int PX_MULTIPLIER_200 = 200;   // 480px height (4.3" ESP32): matched physi
 // Font declarations for supported display heights
 // ---------------------------------------------------------------------------
 #ifdef SUPPORT_DISPLAY_HEIGHT_240
+LV_FONT_DECLARE(opensans_semibold_26_4bpp);
 LV_FONT_DECLARE(opensans_semibold_20_4bpp);
 LV_FONT_DECLARE(opensans_semibold_18_4bpp);
 LV_FONT_DECLARE(opensans_regular_17_4bpp);
+LV_FONT_DECLARE(seedsigner_icons_48_4bpp);
 LV_FONT_DECLARE(seedsigner_icons_24_4bpp);
 LV_FONT_DECLARE(seedsigner_icons_36_4bpp);
 #endif
 
 #ifdef SUPPORT_DISPLAY_HEIGHT_320
+LV_FONT_DECLARE(opensans_semibold_26_4bpp_150x);
 LV_FONT_DECLARE(opensans_semibold_20_4bpp_150x);
 LV_FONT_DECLARE(opensans_semibold_18_4bpp_150x);
 LV_FONT_DECLARE(opensans_regular_17_4bpp_150x);
@@ -59,6 +62,7 @@ LV_FONT_DECLARE(seedsigner_icons_36_4bpp_150x);
 #endif
 
 #ifdef SUPPORT_DISPLAY_HEIGHT_480
+LV_FONT_DECLARE(opensans_semibold_26_4bpp_200x);
 LV_FONT_DECLARE(opensans_semibold_20_4bpp_200x);
 LV_FONT_DECLARE(opensans_semibold_18_4bpp_200x);
 LV_FONT_DECLARE(opensans_regular_17_4bpp_200x);
@@ -99,7 +103,9 @@ struct DisplayProfile {
     int button_radius;
     int main_menu_button_height;
 
+    const lv_font_t* main_menu_title_font;
     const lv_font_t* top_nav_title_font;
+    const lv_font_t* large_button_font;
     const lv_font_t* button_font;
     const lv_font_t* body_font;
     const lv_font_t* icon_font;
@@ -139,7 +145,9 @@ const DisplayProfile& display_profile_at(int index);
 #define BUTTON_RADIUS             (active_profile().button_radius)
 #define MAIN_MENU_BUTTON_HEIGHT   (active_profile().main_menu_button_height)
 
+#define MAIN_MENU_TITLE_FONT               (*active_profile().main_menu_title_font)
 #define TOP_NAV_TITLE_FONT                 (*active_profile().top_nav_title_font)
+#define LARGE_BUTTON_FONT                  (*active_profile().large_button_font)
 #define BUTTON_FONT                        (*active_profile().button_font)
 #define BODY_FONT                          (*active_profile().body_font)
 #define ICON_FONT__SEEDSIGNER              (*active_profile().icon_font)

@@ -199,7 +199,7 @@ static void bind_screen_navigation(const json &cfg,
 // Build root screen: top nav + standard body container.
 // Screen-specific code should only populate scaffold.body, then call
 // load_screen_and_cleanup_previous(scaffold.screen).
-static screen_scaffold_t create_top_nav_screen_scaffold(const json &cfg, bool scrollable) {
+static screen_scaffold_t create_top_nav_screen_scaffold(const json &cfg, bool scrollable, const lv_font_t *title_font = nullptr) {
     screen_scaffold_t out = {0};
 
     out.screen = lv_obj_create(NULL);
@@ -220,7 +220,7 @@ static screen_scaffold_t create_top_nav_screen_scaffold(const json &cfg, bool sc
     }
     std::string title = tn["title"].get<std::string>();
 
-    out.top_nav = top_nav(out.screen, title.c_str(), show_back, show_power, &out.top_back_btn, &out.top_power_btn);
+    out.top_nav = top_nav(out.screen, title.c_str(), show_back, show_power, &out.top_back_btn, &out.top_power_btn, title_font);
     out.body = create_standard_body_content(out.screen, out.top_nav, scrollable);
     return out;
 }
@@ -329,7 +329,7 @@ void main_menu_screen(void *ctx)
     (void)ctx;
 
     json cfg = {{"top_nav", {{"title", "Home"}, {"show_back_button", false}, {"show_power_button", true}}}};
-    screen_scaffold_t screen = create_top_nav_screen_scaffold(cfg, false);
+    screen_scaffold_t screen = create_top_nav_screen_scaffold(cfg, false, &MAIN_MENU_TITLE_FONT);
     lv_obj_t *scr = screen.screen;
     lv_obj_t *body_content = screen.body;
 

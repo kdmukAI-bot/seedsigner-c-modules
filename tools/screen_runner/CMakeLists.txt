@@ -81,15 +81,18 @@ file(GLOB_RECURSE LVGL_SOURCES CONFIGURE_DEPENDS
 set(SEEDSIGNER_FONT_SOURCES "")
 if(SUPPORT_DISPLAY_HEIGHT_240)
     list(APPEND SEEDSIGNER_FONT_SOURCES
+      "${SEEDSIGNER_DIR}/fonts/opensans_semibold_26_4bpp.c"
       "${SEEDSIGNER_DIR}/fonts/opensans_semibold_20_4bpp.c"
       "${SEEDSIGNER_DIR}/fonts/opensans_semibold_18_4bpp.c"
       "${SEEDSIGNER_DIR}/fonts/opensans_regular_17_4bpp.c"
+      "${SEEDSIGNER_DIR}/fonts/seedsigner_icons_48_4bpp.c"
       "${SEEDSIGNER_DIR}/fonts/seedsigner_icons_24_4bpp.c"
       "${SEEDSIGNER_DIR}/fonts/seedsigner_icons_36_4bpp.c"
     )
 endif()
 if(SUPPORT_DISPLAY_HEIGHT_320)
     list(APPEND SEEDSIGNER_FONT_SOURCES
+      "${SEEDSIGNER_DIR}/fonts/opensans_semibold_26_4bpp_150x.c"
       "${SEEDSIGNER_DIR}/fonts/opensans_semibold_20_4bpp_150x.c"
       "${SEEDSIGNER_DIR}/fonts/opensans_semibold_18_4bpp_150x.c"
       "${SEEDSIGNER_DIR}/fonts/opensans_regular_17_4bpp_150x.c"
@@ -99,6 +102,7 @@ if(SUPPORT_DISPLAY_HEIGHT_320)
 endif()
 if(SUPPORT_DISPLAY_HEIGHT_480)
     list(APPEND SEEDSIGNER_FONT_SOURCES
+      "${SEEDSIGNER_DIR}/fonts/opensans_semibold_26_4bpp_200x.c"
       "${SEEDSIGNER_DIR}/fonts/opensans_semibold_20_4bpp_200x.c"
       "${SEEDSIGNER_DIR}/fonts/opensans_semibold_18_4bpp_200x.c"
       "${SEEDSIGNER_DIR}/fonts/opensans_regular_17_4bpp_200x.c"

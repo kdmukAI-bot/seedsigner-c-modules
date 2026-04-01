@@ -14,7 +14,9 @@ static int px_scale(int base, int multiplier) {
 // unsuffixed = PX_MULTIPLIER_100, _150x = PX_MULTIPLIER_150.
 // ---------------------------------------------------------------------------
 struct FontSet {
+    const lv_font_t* main_menu_title;
     const lv_font_t* title;
+    const lv_font_t* large_button;
     const lv_font_t* button;
     const lv_font_t* body;
     const lv_font_t* icon;
@@ -25,33 +27,39 @@ static FontSet fonts_for_multiplier(int px_mult) {
 #ifdef SUPPORT_DISPLAY_HEIGHT_480
     if (px_mult == PX_MULTIPLIER_200) {
         return {
+            &opensans_semibold_26_4bpp_200x,
             &opensans_semibold_20_4bpp_200x,
+            &opensans_semibold_18_4bpp_200x,  // large_button = button font (unchanged)
             &opensans_semibold_18_4bpp_200x,
             &opensans_regular_17_4bpp_200x,
             &seedsigner_icons_24_4bpp_200x,
-            &seedsigner_icons_36_4bpp_200x,
+            &seedsigner_icons_36_4bpp_200x,   // icon_large unchanged
         };
     }
 #endif
 #ifdef SUPPORT_DISPLAY_HEIGHT_320
     if (px_mult == PX_MULTIPLIER_150) {
         return {
+            &opensans_semibold_26_4bpp_150x,  // main_menu_title = 39px
             &opensans_semibold_20_4bpp_150x,
+            &opensans_semibold_18_4bpp_150x,  // large_button = button font (unchanged)
             &opensans_semibold_18_4bpp_150x,
             &opensans_regular_17_4bpp_150x,
             &seedsigner_icons_24_4bpp_150x,
-            &seedsigner_icons_36_4bpp_150x,
+            &seedsigner_icons_36_4bpp_150x,   // icon_large unchanged
         };
     }
 #endif
 #ifdef SUPPORT_DISPLAY_HEIGHT_240
     if (px_mult == PX_MULTIPLIER_100) {
         return {
+            &opensans_semibold_26_4bpp,        // main_menu_title = 26px
             &opensans_semibold_20_4bpp,
+            &opensans_semibold_20_4bpp,        // large_button = title font (20px)
             &opensans_semibold_18_4bpp,
             &opensans_regular_17_4bpp,
             &seedsigner_icons_24_4bpp,
-            &seedsigner_icons_36_4bpp,
+            &seedsigner_icons_48_4bpp,         // icon_large = 48px
         };
     }
 #endif
@@ -95,7 +103,7 @@ static DisplayProfile make_profile(int width, int height) {
         px_scale(32, px_mult),   // button_height
         px_scale(8, px_mult),    // button_radius
         px_scale(56, px_mult),   // main_menu_button_height
-        fonts.title, fonts.button, fonts.body, fonts.icon, fonts.icon_large,
+        fonts.main_menu_title, fonts.title, fonts.large_button, fonts.button, fonts.body, fonts.icon, fonts.icon_large,
     };
 }
 
