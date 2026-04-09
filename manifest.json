@@ -1,37 +1,153 @@
 {
-  "generated_at": "2026-03-20 20:07:56Z",
-  "width": 480,
-  "height": 320,
-  "screenshots": [
+  "generated_at": "2026-04-09 16:37:03Z",
+  "resolutions": [
     {
-      "name": "main_menu_screen",
-      "display_name": "main_menu_screen",
-      "path": "img/main_menu_screen.png"
+      "width": 240,
+      "height": 240,
+      "label": "240x240",
+      "screenshots": [
+        {
+          "name": "main_menu_screen",
+          "display_name": "main_menu_screen",
+          "path": "img/240x240/main_menu_screen_240x240.png"
+        },
+        {
+          "name": "button_list_screen",
+          "display_name": "button_list_screen",
+          "path": "img/240x240/button_list_screen_240x240.png"
+        },
+        {
+          "name": "button_list_screen__1_item",
+          "display_name": "button_list_screen (_1_item)",
+          "path": "img/240x240/button_list_screen__1_item_240x240.png"
+        },
+        {
+          "name": "button_list_screen__scroll_many",
+          "display_name": "button_list_screen (_scroll_many)",
+          "path": "img/240x240/button_list_screen__scroll_many_240x240.png"
+        },
+        {
+          "name": "button_list_screen__long_title",
+          "display_name": "button_list_screen (_long_title) [animated]",
+          "path": "img/240x240/button_list_screen__long_title_240x240.gif"
+        },
+        {
+          "name": "screensaver_screen",
+          "display_name": "screensaver_screen",
+          "path": "img/240x240/screensaver_screen_240x240.png"
+        }
+      ]
     },
     {
-      "name": "button_list_screen",
-      "display_name": "button_list_screen",
-      "path": "img/button_list_screen.png"
+      "width": 320,
+      "height": 240,
+      "label": "320x240",
+      "screenshots": [
+        {
+          "name": "main_menu_screen",
+          "display_name": "main_menu_screen",
+          "path": "img/320x240/main_menu_screen_320x240.png"
+        },
+        {
+          "name": "button_list_screen",
+          "display_name": "button_list_screen",
+          "path": "img/320x240/button_list_screen_320x240.png"
+        },
+        {
+          "name": "button_list_screen__1_item",
+          "display_name": "button_list_screen (_1_item)",
+          "path": "img/320x240/button_list_screen__1_item_320x240.png"
+        },
+        {
+          "name": "button_list_screen__scroll_many",
+          "display_name": "button_list_screen (_scroll_many)",
+          "path": "img/320x240/button_list_screen__scroll_many_320x240.png"
+        },
+        {
+          "name": "button_list_screen__long_title",
+          "display_name": "button_list_screen (_long_title) [animated]",
+          "path": "img/320x240/button_list_screen__long_title_320x240.gif"
+        },
+        {
+          "name": "screensaver_screen",
+          "display_name": "screensaver_screen",
+          "path": "img/320x240/screensaver_screen_320x240.png"
+        }
+      ]
     },
     {
-      "name": "button_list_screen__1_item",
-      "display_name": "button_list_screen (_1_item)",
-      "path": "img/button_list_screen__1_item.png"
+      "width": 480,
+      "height": 320,
+      "label": "480x320",
+      "screenshots": [
+        {
+          "name": "main_menu_screen",
+          "display_name": "main_menu_screen",
+          "path": "img/480x320/main_menu_screen_480x320.png"
+        },
+        {
+          "name": "button_list_screen",
+          "display_name": "button_list_screen",
+          "path": "img/480x320/button_list_screen_480x320.png"
+        },
+        {
+          "name": "button_list_screen__1_item",
+          "display_name": "button_list_screen (_1_item)",
+          "path": "img/480x320/button_list_screen__1_item_480x320.png"
+        },
+        {
+          "name": "button_list_screen__scroll_many",
+          "display_name": "button_list_screen (_scroll_many)",
+          "path": "img/480x320/button_list_screen__scroll_many_480x320.png"
+        },
+        {
+          "name": "button_list_screen__long_title",
+          "display_name": "button_list_screen (_long_title) [animated]",
+          "path": "img/480x320/button_list_screen__long_title_480x320.gif"
+        },
+        {
+          "name": "screensaver_screen",
+          "display_name": "screensaver_screen",
+          "path": "img/480x320/screensaver_screen_480x320.png"
+        }
+      ]
     },
     {
-      "name": "button_list_screen__scroll_many",
-      "display_name": "button_list_screen (_scroll_many)",
-      "path": "img/button_list_screen__scroll_many.png"
-    },
-    {
-      "name": "button_list_screen__long_title",
-      "display_name": "button_list_screen (_long_title) [animated]",
-      "path": "img/button_list_screen__long_title.gif"
-    },
-    {
-      "name": "screensaver_screen",
-      "display_name": "screensaver_screen",
-      "path": "img/screensaver_screen.png"
+      "width": 800,
+      "height": 480,
+      "label": "800x480",
+      "screenshots": [
+        {
+          "name": "main_menu_screen",
+          "display_name": "main_menu_screen",
+          "path": "img/800x480/main_menu_screen_800x480.png"
+        },
+        {
+          "name": "button_list_screen",
+          "display_name": "button_list_screen",
+          "path": "img/800x480/button_list_screen_800x480.png"
+        },
+        {
+          "name": "button_list_screen__1_item",
+          "display_name": "button_list_screen (_1_item)",
+          "path": "img/800x480/button_list_screen__1_item_800x480.png"
+        },
+        {
+          "name": "button_list_screen__scroll_many",
+          "display_name": "button_list_screen (_scroll_many)",
+          "path": "img/800x480/button_list_screen__scroll_many_800x480.png"
+        },
+        {
+          "name": "button_list_screen__long_title",
+          "display_name": "button_list_screen (_long_title) [animated]",
+          "path": "img/800x480/button_list_screen__long_title_800x480.gif"
+        },
+        {
+          "name": "screensaver_screen",
+          "display_name": "screensaver_screen",
+          "path": "img/800x480/screensaver_screen_800x480.png"
+        }
+      ]
     }
   ]
 }
