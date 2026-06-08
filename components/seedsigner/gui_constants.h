@@ -59,6 +59,7 @@ LV_FONT_DECLARE(opensans_semibold_18_4bpp_150x);
 LV_FONT_DECLARE(opensans_regular_17_4bpp_150x);
 LV_FONT_DECLARE(seedsigner_icons_24_4bpp_150x);
 LV_FONT_DECLARE(seedsigner_icons_36_4bpp_150x);
+LV_FONT_DECLARE(seedsigner_icons_48_4bpp_150x);
 #endif
 
 #ifdef SUPPORT_DISPLAY_HEIGHT_480
@@ -68,6 +69,7 @@ LV_FONT_DECLARE(opensans_semibold_18_4bpp_200x);
 LV_FONT_DECLARE(opensans_regular_17_4bpp_200x);
 LV_FONT_DECLARE(seedsigner_icons_24_4bpp_200x);
 LV_FONT_DECLARE(seedsigner_icons_36_4bpp_200x);
+LV_FONT_DECLARE(seedsigner_icons_48_4bpp_200x);
 #endif
 
 // ---------------------------------------------------------------------------
@@ -109,6 +111,10 @@ struct DisplayProfile {
     const lv_font_t* body_font;
     const lv_font_t* icon_font;
     const lv_font_t* icon_large_button_font;
+
+    // 48 px (base) seedsigner icon font, used as the hero icon on
+    // status/error screens. Scales 1.5x at 320 height, 2x at 480 height.
+    const lv_font_t* icon_primary_screen_font;
 };
 
 const DisplayProfile& active_profile();
@@ -150,14 +156,16 @@ const DisplayProfile& display_profile_at(int index);
 #define BODY_FONT                          (*active_profile().body_font)
 #define ICON_FONT__SEEDSIGNER              (*active_profile().icon_font)
 #define ICON_LARGE_BUTTON_FONT__SEEDSIGNER (*active_profile().icon_large_button_font)
+#define ICON_PRIMARY_SCREEN_FONT__SEEDSIGNER (*active_profile().icon_primary_screen_font)
 
 // ---------------------------------------------------------------------------
 // Non-scaling constants (colors, font names, etc.)
 // ---------------------------------------------------------------------------
 const int BACKGROUND_COLOR = 0x000000;
 const int WARNING_COLOR = 0xffd60a;
-const int DIRE_WARNING_COLOR = 0xff0000;
-const int SUCCESS_COLOR = 0x00dd00;
+const int DIRE_WARNING_COLOR = 0xff5700;
+const int ERROR_COLOR = 0xff1b0a;
+const int SUCCESS_COLOR = 0x30d158;
 const int BITCOIN_ORANGE = 0xff9416;
 const int ACCENT_COLOR = 0xff9f0a;
 const int TESTNET_COLOR = 0x00f100;

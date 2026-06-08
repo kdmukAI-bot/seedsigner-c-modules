@@ -71,3 +71,4 @@ tools/screenshot_generator/build-*/
 tools/screenshot_generator/build/
 tools/screen_runner/build-asan/screen_runner
 CLAUDE.md
+.claude/
