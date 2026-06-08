@@ -24,6 +24,7 @@
 #include "lvgl.h"
 #include "gui_constants.h"
 #include "seedsigner.h"
+#include "input_profile.h"
 
 #ifndef PATH_MAX
 #define PATH_MAX 4096
@@ -56,6 +57,7 @@ static const std::unordered_map<std::string, screen_fn_t> k_screen_registry = {
     {"button_list_screen", button_list_screen},
     {"screensaver_screen", screensaver_screen},
     {"large_icon_status_screen", large_icon_status_screen},
+    {"seed_add_passphrase_screen", seed_add_passphrase_screen},
 };
 
 static screen_fn_t lookup_screen_fn(const std::string &name) {
@@ -509,6 +511,10 @@ int main(int argc, char **argv) {
 
     lv_init();
 
+    // Static screenshots: disable animations (e.g. the text-entry cursor blink)
+    // so each frame is deterministic and the cursor is always captured.
+    seedsigner_lvgl_set_static_render(true);
+
     json manifest_resolutions = json::array();
 
     // Generate screenshots for every compiled-in display profile.
@@ -519,6 +525,12 @@ int main(int argc, char **argv) {
         g_width  = profile.width;
         g_height = profile.height;
         g_fb.assign((size_t)g_width * (size_t)g_height, 0);
+
+        // Render each resolution in its native input mode: the 240px Pi Zero is
+        // joystick; larger ESP32 screens are touch. Screens that branch on input
+        // mode (e.g. the passphrase keyboard) then show the right experience for
+        // that device without per-scenario input overrides.
+        input_profile_set_mode(profile.height == 240 ? INPUT_MODE_HARDWARE : INPUT_MODE_TOUCH);
 
         char res_label[32];
         snprintf(res_label, sizeof(res_label), "%dx%d", g_width, g_height);
@@ -548,6 +560,14 @@ int main(int argc, char **argv) {
 
         for (const scenario_def_t &scenario : scenarios) {
             try {
+                // The dedicated digits page only exists at 240px (larger screens
+                // keep digits in the number row), so a "digits" variation above
+                // 240px would just duplicate the lowercase base — skip it.
+                if (profile.height > 240 &&
+                    scenario.context.value("initial_mode", std::string()) == "digits") {
+                    continue;
+                }
+
                 if (!render_scenario_def(scenario)) {
                     fprintf(stderr, "Unknown/invalid scenario: %s\n", scenario.name.c_str());
                     return 2;

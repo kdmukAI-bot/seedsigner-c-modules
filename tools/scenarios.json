@@ -113,5 +113,36 @@
         }
       }
     ]
+  },
+  "seed_add_passphrase_screen": {
+    "context": {
+      "top_nav": { "title": "Enter Passphrase", "show_back_button": true, "show_power_button": false }
+    },
+    "variations": [
+      {
+        "name": "prefilled",
+        "context": {
+          "initial_text": "satoshi"
+        }
+      },
+      {
+        "name": "uppercase",
+        "context": {
+          "initial_mode": "upper"
+        }
+      },
+      {
+        "name": "digits",
+        "context": {
+          "initial_mode": "digits"
+        }
+      },
+      {
+        "name": "symbols",
+        "context": {
+          "initial_mode": "symbols"
+        }
+      }
+    ]
   }
 }

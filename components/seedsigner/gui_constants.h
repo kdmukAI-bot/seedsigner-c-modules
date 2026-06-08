@@ -50,6 +50,7 @@ LV_FONT_DECLARE(opensans_regular_17_4bpp);
 LV_FONT_DECLARE(seedsigner_icons_48_4bpp);
 LV_FONT_DECLARE(seedsigner_icons_24_4bpp);
 LV_FONT_DECLARE(seedsigner_icons_36_4bpp);
+LV_FONT_DECLARE(inconsolata_semibold_18_4bpp);
 #endif
 
 #ifdef SUPPORT_DISPLAY_HEIGHT_320
@@ -60,6 +61,7 @@ LV_FONT_DECLARE(opensans_regular_17_4bpp_150x);
 LV_FONT_DECLARE(seedsigner_icons_24_4bpp_150x);
 LV_FONT_DECLARE(seedsigner_icons_36_4bpp_150x);
 LV_FONT_DECLARE(seedsigner_icons_48_4bpp_150x);
+LV_FONT_DECLARE(inconsolata_semibold_18_4bpp_150x);
 #endif
 
 #ifdef SUPPORT_DISPLAY_HEIGHT_480
@@ -70,6 +72,7 @@ LV_FONT_DECLARE(opensans_regular_17_4bpp_200x);
 LV_FONT_DECLARE(seedsigner_icons_24_4bpp_200x);
 LV_FONT_DECLARE(seedsigner_icons_36_4bpp_200x);
 LV_FONT_DECLARE(seedsigner_icons_48_4bpp_200x);
+LV_FONT_DECLARE(inconsolata_semibold_18_4bpp_200x);
 #endif
 
 // ---------------------------------------------------------------------------
@@ -115,6 +118,11 @@ struct DisplayProfile {
     // 48 px (base) seedsigner icon font, used as the hero icon on
     // status/error screens. Scales 1.5x at 320 height, 2x at 480 height.
     const lv_font_t* icon_primary_screen_font;
+
+    // Fixed-width font (Inconsolata SemiBold, 18 px base) for the on-screen
+    // keyboard keys and the passphrase text-entry box. Merged with the
+    // LV_SYMBOL_* control glyphs so a single font covers letters + controls.
+    const lv_font_t* keyboard_font;
 };
 
 const DisplayProfile& active_profile();
@@ -157,6 +165,7 @@ const DisplayProfile& display_profile_at(int index);
 #define ICON_FONT__SEEDSIGNER              (*active_profile().icon_font)
 #define ICON_LARGE_BUTTON_FONT__SEEDSIGNER (*active_profile().icon_large_button_font)
 #define ICON_PRIMARY_SCREEN_FONT__SEEDSIGNER (*active_profile().icon_primary_screen_font)
+#define KEYBOARD_FONT                      (*active_profile().keyboard_font)
 
 // ---------------------------------------------------------------------------
 // Non-scaling constants (colors, font names, etc.)

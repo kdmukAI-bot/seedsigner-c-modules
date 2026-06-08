@@ -37,6 +37,7 @@ static const std::unordered_map<std::string, screen_fn_t> k_screen_registry = {
     {"button_list_screen", button_list_screen},
     {"screensaver_screen", screensaver_screen},
     {"large_icon_status_screen", large_icon_status_screen},
+    {"seed_add_passphrase_screen", seed_add_passphrase_screen},
 };
 
 struct scenario_def_t {
@@ -245,6 +246,16 @@ extern "C" void seedsigner_lvgl_on_button_selected(uint32_t index, const char *l
         g_status_text = std::string("BODY  |  ") + (label ? label : "");
     }
     // g_status_tex is rebuilt in draw_status_bar on next frame.
+    if (g_status_tex) {
+        SDL_DestroyTexture(g_status_tex);
+        g_status_tex = NULL;
+    }
+    g_status_set_ms = SDL_GetTicks();
+}
+
+extern "C" void seedsigner_lvgl_on_text_entered(const char *text) {
+    SDL_Log("[text] entered: %s", text ? text : "");
+    g_status_text = std::string("TEXT  |  ") + (text ? text : "");
     if (g_status_tex) {
         SDL_DestroyTexture(g_status_tex);
         g_status_tex = NULL;
@@ -793,6 +804,12 @@ static uint32_t map_sdl_key(SDL_Keycode key) {
         case SDLK_1: case SDLK_KP_1: case SDLK_EXCLAIM: return LV_KEY_ENTER;
         case SDLK_2: case SDLK_KP_2: case SDLK_AT:      return LV_KEY_ENTER;
         case SDLK_3: case SDLK_KP_3: case SDLK_HASH:    return LV_KEY_ENTER;
+        // F1/F2/F3 emit the aux-key codes ('1'/'2'/'3', detected by is_aux_key /
+        // the passphrase keyboard) so screens with a KEY1/KEY2/KEY3 panel are
+        // testable. The number keys remain ENTER (the common center-click case).
+        case SDLK_F1: return (uint32_t)'1';
+        case SDLK_F2: return (uint32_t)'2';
+        case SDLK_F3: return (uint32_t)'3';
         default: return 0;
     }
 }
