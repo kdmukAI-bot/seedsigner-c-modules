@@ -70,5 +70,14 @@ Thumbs.db
 tools/screenshot_generator/build-*/
 tools/screenshot_generator/build/
 tools/screen_runner/build-asan/screen_runner
+
+# Web runner (WASM) build output
+tools/web_runner/build-wasm/
+tools/web_runner/build/
+# Generated at build time from tools/scenarios.json
+tools/web_runner/scenarios.js
+# Persistent build caches (ccache + Emscripten port cache)
+tools/web_runner/.ccache/
+tools/web_runner/.emcache/
 CLAUDE.md
 .claude/
