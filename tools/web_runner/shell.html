@@ -1,0 +1,551 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<title>SeedSigner LVGL Screen Playground</title>
+<style>
+  :root {
+    --bg: #121212; --panel: #1a1a1a; --panel2: #222; --line: #303030;
+    --text: #e8e8e8; --dim: #9a9a9a; --accent: #ff9f0a; --blue: #3d6b8c;
+    --err: #e0533d; --ok: #4f9e54;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; padding: 0; background: var(--bg); color: var(--text);
+    font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; font-size: 17px; }
+  header { display: flex; align-items: center; gap: 10px; padding: 12px 16px;
+    border-bottom: 1px solid var(--line); background: var(--panel); }
+  header .brand { color: var(--accent); font-weight: 700; font-size: 18px; }
+  header .rest { color: var(--dim); font-size: 16px; }
+
+  /* Responsive: side-by-side columns when there's room, stacked otherwise
+     (JSON editor flows to the bottom of the single column when it wraps). */
+  /* align-items: stretch so the JSON column matches the height of the main
+     column (its two cards) when they sit side by side; in the wrapped single
+     column each card keeps its natural height. */
+  main { display: flex; flex-wrap: wrap; justify-content: center; align-items: stretch;
+    gap: 16px; padding: 16px; }
+  .col-main { flex: 1 1 520px; min-width: 300px; max-width: 940px;
+    display: flex; flex-direction: column; align-items: center; gap: 16px; }
+  .col-json { flex: 1 1 340px; min-width: 280px; max-width: 480px;
+    display: flex; flex-direction: column; }
+  .col-json .card { flex: 1; display: flex; flex-direction: column; }
+  /* Fill the JSON card's height; min-height is the floor when stacked. */
+  .col-json #json-editor { flex: 1 1 auto; }
+  .card { background: var(--panel); border: 1px solid var(--line); border-radius: 8px;
+    padding: 14px; width: 100%; }
+  /* Highlight whichever card currently holds focus (screen/scenario selectors,
+     the LVGL stage, or the JSON editor) so it's clear where input is going. */
+  .card.active { outline: 2px solid var(--accent); outline-offset: 2px; }
+  /* The active-card outline is the focus cue for the JSON editor; suppress the
+     textarea's own focus ring so it isn't doubly highlighted. */
+  #json-editor:focus { outline: none; }
+  .card h2 { margin: 0 0 10px; font-size: 14px; text-transform: uppercase;
+    letter-spacing: .06em; color: var(--dim); font-weight: 600; }
+  label { font-size: 15px; color: var(--dim); }
+  select, button, textarea { font: inherit; color: var(--text); background: var(--panel2);
+    border: 1px solid var(--line); border-radius: 6px; padding: 8px 10px; }
+  select { min-width: 150px; }
+  .row { display: flex; flex-wrap: wrap; gap: 12px; align-items: center; }
+  .row > label { display: flex; flex-direction: column; gap: 4px; }
+  button { cursor: pointer; }
+  button:hover { border-color: #555; }
+  button.primary { background: var(--blue); border-color: var(--blue); color: #fff; }
+  textarea { width: 100%; min-height: 260px; resize: vertical; tab-size: 2;
+    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 15px;
+    white-space: pre; overflow: auto; }
+  #json-error { min-height: 18px; font-size: 15px; color: var(--err); white-space: pre-wrap; }
+  #json-error.ok { color: var(--ok); }
+
+  /* Device viewport area: D-pad (left) | screen | KEY1-3 (right), like the hat. */
+  #stage { display: flex; flex-direction: column; align-items: center; gap: 12px; }
+  /* #play layout is chosen in JS (relayout): D-pad left / screen / KEY1-3 right
+     when there's room to flank, else stacked (screen on top, controls in a row
+     directly below — never above). Result line is a sibling AFTER #play. */
+  #play { max-width: 100%; }
+  #play.flank  { display: flex; flex-direction: row; align-items: center;
+    justify-content: center; gap: 24px; }
+  #play.center { display: flex; align-items: center; justify-content: center; }
+  #play.stack  { display: grid; justify-content: center; align-items: center;
+    gap: 14px 24px; grid-template-columns: auto auto;
+    grid-template-areas: "canvas canvas" "dpad keys"; }
+  #play.stack #dpad { grid-area: dpad; }
+  #play.stack #canvas-wrap { grid-area: canvas; }
+  #play.stack #sidekeys { grid-area: keys; }
+  #canvas-wrap { position: relative; background: #000; border: 1px solid var(--line);
+    border-radius: 6px; line-height: 0; max-width: 100%; min-width: 0; }
+  /* Never let the preview spill past its column: cap to the wrapper width and
+     keep aspect via height:auto (JS sets an explicit size in fullscreen). */
+  canvas#canvas { display: block; image-rendering: pixelated; image-rendering: crisp-edges;
+    touch-action: none; outline: none; background: #000; max-width: 100%; }
+
+  /* Most-recent result, shown directly under the display (like the native status bar). */
+  #result-line { width: 100%; text-align: center; font-family: ui-monospace, Menlo, Consolas, monospace;
+    font-size: 15px; color: #80b0e0; background: var(--panel2); border: 1px solid var(--line);
+    border-radius: 6px; padding: 7px 9px; min-height: 32px; }
+  #result-line .tag { color: var(--accent); margin-right: 8px; }
+
+  /* On-screen hardware controls (joystick + side buttons) */
+  .dpad { display: grid; grid-template-columns: repeat(3, 50px); grid-template-rows: repeat(3, 50px); gap: 5px; }
+  .dpad button { width: 50px; height: 50px; border-radius: 8px; font-size: 19px; padding: 0; }
+  .dpad .center { font-size: 13px; }
+  .sidekeys { display: flex; flex-direction: column; gap: 10px; }
+  .sidekeys button { width: 68px; height: 44px; font-size: 15px; }
+  .hw-control.hidden { display: none; }
+
+  /* Normal view: the display selectors sit inline in the bar (as before); the
+     ⚙ gear is hidden. In fullscreen they collapse behind the gear (pinned
+     top-left) as an overlay popout, reclaiming vertical space (phone landscape). */
+  #settings-btn { display: none; }
+  #settings-panel { display: flex; gap: 14px; flex-wrap: wrap; align-items: center; }
+  /* Only collapse the selectors behind the ⚙ popout when fullscreen vertical
+     space is tight (e.g. phone landscape). With room — desktop/tablet — they
+     stay inline in the bar. */
+  @media (max-height: 600px) {
+    #stage:fullscreen #settings-btn { display: inline-block; position: fixed; top: 14px; left: 14px;
+      z-index: 31; background: rgba(0,0,0,.6); }
+    #stage:fullscreen #settings-panel { position: fixed; top: 58px; left: 14px; z-index: 30;
+      background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 12px;
+      box-shadow: 0 8px 24px rgba(0,0,0,.55); max-width: 92vw; }
+    #stage:fullscreen #settings-panel.hidden { display: none; }
+  }
+
+  #fs-exit { display: none; }
+
+  /* Transient result toast — only used in fullscreen (where the persistent
+     result line is hidden). Lives inside #stage so it renders in fullscreen.
+     Fades out a couple seconds after each result. */
+  #result-toast { display: none; position: fixed; left: 50%; bottom: 26px;
+    transform: translateX(-50%); background: rgba(18,18,18,.92); border: 1px solid var(--line);
+    border-radius: 8px; padding: 9px 18px; font-family: ui-monospace, Menlo, Consolas, monospace;
+    font-size: 15px; color: #80b0e0; opacity: 0; transition: opacity .5s ease;
+    pointer-events: none; z-index: 20; max-width: 90vw; white-space: nowrap;
+    overflow: hidden; text-overflow: ellipsis; }
+  #result-toast .tag { color: var(--accent); margin-right: 8px; }
+  #stage:fullscreen #result-toast, #stage:-webkit-full-screen #result-toast { display: block; }
+
+  /* Fullscreen: fills the viewport, keeps the top controls (resolution / input
+     mode / zoom), and honors the zoom value but scales a too-large zoom down so
+     the screen always fits. Results show via the transient toast. */
+  #stage:fullscreen, #stage:-webkit-full-screen {
+    background: var(--bg); width: 100vw; height: 100vh; padding: 12px;
+    justify-content: safe center; overflow: auto; }
+  #stage:fullscreen .hint, #stage:fullscreen #result-line,
+  #stage:fullscreen #fs-btn { display: none; }
+  /* Fullscreen flank: keep the LVGL window centered between the controls — equal
+     side columns so the screen sits in the middle regardless of control widths. */
+  #stage:fullscreen #play.flank { display: grid; grid-template-columns: 1fr auto 1fr;
+    align-items: center; justify-items: center; gap: 0 28px; width: 100%; }
+  #stage:fullscreen #play.flank #dpad { justify-self: end; }
+  #stage:fullscreen #play.flank #sidekeys { justify-self: start; }
+  #stage:fullscreen #fs-exit { display: flex; align-items: center; justify-content: center;
+    position: fixed; top: 14px; right: 14px; z-index: 31; width: 40px; height: 40px;
+    padding: 0; font-size: 20px; line-height: 1; border-radius: 50%;
+    background: rgba(0,0,0,.6); opacity: .9; }
+
+  .hint { font-size: 14px; color: var(--dim); line-height: 1.6; text-align: center; }
+  kbd { background: var(--panel2); border: 1px solid var(--line); border-radius: 4px;
+    padding: 1px 6px; font-size: 13px; }
+</style>
+</head>
+<body>
+<header>
+  <span class="brand">SeedSigner</span>
+  <span class="rest">LVGL Screen Playground &mdash; live JSON &amp; interactive</span>
+</header>
+
+<main>
+ <div class="col-main">
+  <!-- 1. Screen & scenario selectors -->
+  <div class="card">
+    <h2>Screen &amp; scenario</h2>
+    <div class="row">
+      <label>Screen
+        <select id="screen-select"></select>
+      </label>
+      <label>Scenario (prefill)
+        <select id="scenario-select"></select>
+      </label>
+    </div>
+  </div>
+
+  <!-- 2. The screen rendering itself -->
+  <section id="stage" class="card">
+    <div id="top-bar" class="row" style="justify-content:center; position:relative;">
+      <button id="settings-btn" title="Display settings" aria-expanded="false">⚙ Settings</button>
+      <div id="settings-panel" class="hidden">
+        <label>Resolution
+          <select id="res-select">
+            <option value="240x240">240 × 240</option>
+            <option value="320x240">320 × 240</option>
+            <option value="480x320">480 × 320</option>
+            <option value="800x480">800 × 480</option>
+          </select>
+        </label>
+        <label>Input mode
+          <select id="mode-select">
+            <option value="1">Hardware (keys)</option>
+            <option value="0">Touch (mouse)</option>
+          </select>
+        </label>
+        <label>Zoom
+          <select id="zoom-select">
+            <option value="1" selected>1×</option>
+            <option value="2">2×</option>
+            <option value="3">3×</option>
+            <option value="4">4×</option>
+          </select>
+        </label>
+      </div>
+      <button id="fs-btn">Fullscreen</button>
+    </div>
+
+    <div id="play">
+      <!-- D-pad on the LEFT (like the Waveshare display hat) -->
+      <div class="dpad hw-control" id="dpad">
+        <span></span>
+        <button data-key="UP" title="Up">▲</button>
+        <span></span>
+        <button data-key="LEFT" title="Left">◀</button>
+        <button data-key="ENTER" class="center" title="Select">OK</button>
+        <button data-key="RIGHT" title="Right">▶</button>
+        <span></span>
+        <button data-key="DOWN" title="Down">▼</button>
+        <span></span>
+      </div>
+
+      <div id="canvas-wrap">
+        <canvas id="canvas" tabindex="0" oncontextmenu="event.preventDefault()"></canvas>
+      </div>
+
+      <!-- KEY1/2/3 on the RIGHT -->
+      <div class="sidekeys hw-control" id="sidekeys">
+        <button data-key="K1">KEY1</button>
+        <button data-key="K2">KEY2</button>
+        <button data-key="K3">KEY3</button>
+      </div>
+    </div>
+
+    <div id="result-line">&mdash;</div>
+    <div id="result-toast"></div>
+
+    <div class="hint">
+      Hardware mode: <kbd>↑</kbd><kbd>↓</kbd><kbd>←</kbd><kbd>→</kbd> nav &middot;
+      <kbd>Enter</kbd> select &middot; <kbd>1</kbd><kbd>2</kbd><kbd>3</kbd> side keys.
+      Touch mode: tap the screen; wheel / two-finger to scroll lists.
+    </div>
+
+    <button id="fs-exit" title="Exit fullscreen" aria-label="Exit fullscreen">✕</button>
+  </section>
+ </div><!-- /col-main -->
+
+ <!-- 3. The JSON context (drives the screen). Second column when wide; wraps
+      to the bottom of the single column when narrow. -->
+ <div class="col-json">
+  <div class="card">
+    <h2>JSON context <span style="text-transform:none;color:var(--dim)">— drives the screen</span></h2>
+    <textarea id="json-editor" spellcheck="false" autocapitalize="off" autocomplete="off"></textarea>
+    <div class="row" style="margin-top:8px; justify-content: space-between;">
+      <div id="json-error">&nbsp;</div>
+      <button id="apply-btn" class="primary">Apply / Run screen</button>
+    </div>
+    <div class="hint" style="text-align:left;">Edits re-render live when the JSON is valid; use the button to force a re-run.</div>
+  </div>
+ </div><!-- /col-json -->
+</main>
+
+<script type="text/javascript">
+  // ---- LVGL key codes (must match lvgl.h) ----
+  var LV_KEY = { UP: 17, DOWN: 18, RIGHT: 19, LEFT: 20, ENTER: 10 };
+  var AUX_KEY = { K1: 49, K2: 50, K3: 51 };   // aux side-keys = char codes '1'/'2'/'3'
+
+  var app = {
+    ready: false,
+    displayW: 240, displayH: 240,
+    zoom: 1,
+    isTouch: false,
+    liveRender: true,
+    debounceTimer: null, toastTimer: null,
+    loadScreen: null, setResolution: null, setInputMode: null, sendKey: null, scroll: null,
+  };
+
+  var Module = {
+    canvas: document.getElementById('canvas'),
+    print:   function (t) { console.log(t); },
+    printErr: function (t) { console.warn(t); },
+  };
+
+  function stageEl() { return document.getElementById('stage'); }
+  function isFullscreen() {
+    return document.fullscreenElement === stageEl() || document.webkitFullscreenElement === stageEl();
+  }
+
+  // ---- Hooks called from C (web_runner.cpp) ----
+  window.ssOnReady = function (w, h) {
+    app.displayW = w; app.displayH = h;
+    app.loadScreen    = Module.cwrap('ss_load_screen', 'number', ['string', 'string']);
+    app.setResolution = Module.cwrap('ss_set_resolution', null, ['number', 'number']);
+    app.setInputMode  = Module.cwrap('ss_set_input_mode', null, ['number']);
+    app.sendKey       = Module.cwrap('ss_send_key', null, ['number']);
+    app.scroll        = Module.cwrap('ss_scroll', null, ['number']);
+    app.ready = true;
+    relayout();
+    initUI();
+  };
+  window.ssOnResize = function (w, h) { app.displayW = w; app.displayH = h; relayout(); };
+  window.ssOnResult = function (ev) {
+    var tag = '', body = '';
+    if (ev.type === 'button') { tag = (ev.kind === 'reserved') ? 'RET' : 'BODY'; body = '[' + ev.index + '] ' + ev.label; }
+    else if (ev.type === 'text') { tag = 'TEXT'; body = ev.text; }
+    else if (ev.type === 'aux') { tag = 'KEY'; body = ev.key; }
+    var html = '<span class="tag">' + tag + '</span>' + body.replace(/</g, '&lt;');
+    // Persistent line (visible in windowed mode).
+    document.getElementById('result-line').innerHTML = html;
+    // Transient toast (visible in fullscreen): show then fade after ~1.8s.
+    if (isFullscreen()) {
+      var t = document.getElementById('result-toast');
+      t.innerHTML = html;
+      t.style.opacity = '1';
+      clearTimeout(app.toastTimer);
+      app.toastTimer = setTimeout(function () { t.style.opacity = '0'; }, 1800);
+    }
+  };
+
+  // ---- Layout + canvas sizing ----
+  // Picks the #play arrangement (flank / stack / center) by measuring whether
+  // the screen + side controls fit across the available width, then sizes the
+  // canvas so it never overflows its column. Windowed honors the zoom dropdown
+  // (capped to fit); fullscreen auto-fits the landscape space.
+  var DPAD_W = 165, KEYS_W = 84, CTRL_GAP = 24;
+  function relayout() {
+    var c = document.getElementById('canvas');
+    var play = document.getElementById('play');
+    var fs = isFullscreen();
+    var controlsW = app.isTouch ? 0 : (DPAD_W + KEYS_W + 2 * CTRL_GAP);
+
+    var availW;
+    if (fs) {
+      availW = Math.max(80, window.innerWidth - 32);
+    } else {
+      var colMain = document.querySelector('.col-main');
+      availW = Math.max(80, (colMain ? colMain.clientWidth : window.innerWidth) - 30);
+    }
+
+    // Flank only if the screen (at the chosen zoom) fits beside the controls;
+    // else stack the controls in a row directly below the screen.
+    var intendedW = app.displayW * app.zoom;
+    var mode = app.isTouch ? 'center' : ((intendedW + controlsW <= availW) ? 'flank' : 'stack');
+    play.className = mode;
+
+    // Honor the zoom dropdown, but cap so the screen never overflows: by the
+    // column width when windowed, and additionally by the viewport height (minus
+    // the top controls bar and, when stacked, the controls row) in fullscreen —
+    // so a zoom larger than the displayable area is scaled down to guarantee fit.
+    var widthBudget = Math.max(80, (mode === 'flank') ? (availW - controlsW) : availW);
+    var scale = Math.min(app.zoom, widthBudget / app.displayW);
+    if (fs) {
+      // Short fullscreen collapses the top bar to an overlay ⚙ (≈no layout
+      // height); with room it stays an inline bar (~56px). Plus a stacked
+      // controls row when the screen is too wide to flank.
+      var hReserve = (window.innerHeight <= 600 ? 16 : 56) + (mode === 'stack' ? 156 : 0);
+      var availH = Math.max(80, window.innerHeight - 32 - hReserve);
+      scale = Math.min(scale, availH / app.displayH);
+    }
+    scale = Math.max(scale, 0.1);
+    c.style.width  = Math.round(app.displayW * scale) + 'px';
+    c.style.height = Math.round(app.displayH * scale) + 'px';
+  }
+
+  // ---- UI wiring ----
+  function initUI() {
+    var screenSel = document.getElementById('screen-select');
+    var scenSel   = document.getElementById('scenario-select');
+    var editor    = document.getElementById('json-editor');
+    var errBox    = document.getElementById('json-error');
+    var modeSel   = document.getElementById('mode-select');
+    var canvas    = document.getElementById('canvas');
+    var catalog   = window.SS_SCENARIOS || {};
+
+    Object.keys(catalog).forEach(function (name) {
+      var o = document.createElement('option'); o.value = name; o.textContent = name;
+      screenSel.appendChild(o);
+    });
+
+    function populateScenarios(screen) {
+      scenSel.innerHTML = '';
+      (catalog[screen] || []).forEach(function (s, i) {
+        var o = document.createElement('option'); o.value = i; o.textContent = s.name;
+        scenSel.appendChild(o);
+      });
+    }
+    function currentContextText() {
+      var idx = parseInt(scenSel.value, 10) || 0;
+      var entry = (catalog[screenSel.value] || [])[idx];
+      return JSON.stringify(entry ? entry.context : {}, null, 2);
+    }
+    function setError(msg, ok) { errBox.textContent = msg || ' '; errBox.className = ok ? 'ok' : ''; }
+    function render(jsonText) {
+      if (!app.ready) return;
+      var rc = app.loadScreen(screenSel.value, jsonText);
+      if (rc === 1) setError('Rendered ✓', true);
+      else if (rc === 0) setError('Unknown screen: ' + screenSel.value, false);
+      else setError('Screen rejected the JSON (kept previous render).', false);
+    }
+    function applyEditor() {
+      try { JSON.parse(editor.value); }
+      catch (e) { setError('Invalid JSON: ' + e.message, false); return; }
+      render(editor.value);
+    }
+    function updateControlsVisibility() {
+      app.isTouch = modeSel.value === '0';
+      document.getElementById('dpad').classList.toggle('hidden', app.isTouch);
+      document.getElementById('sidekeys').classList.toggle('hidden', app.isTouch);
+      relayout();
+    }
+
+    screenSel.addEventListener('change', function () {
+      populateScenarios(screenSel.value); scenSel.value = '0';
+      editor.value = currentContextText(); applyEditor();
+    });
+    scenSel.addEventListener('change', function () { editor.value = currentContextText(); applyEditor(); });
+    editor.addEventListener('input', function () {
+      if (!app.liveRender) return;
+      clearTimeout(app.debounceTimer);
+      app.debounceTimer = setTimeout(applyEditor, 250);
+    });
+    document.getElementById('apply-btn').addEventListener('click', applyEditor);
+
+    document.getElementById('res-select').addEventListener('change', function () {
+      var p = this.value.split('x');
+      app.setResolution(parseInt(p[0], 10), parseInt(p[1], 10));
+      applyEditor();
+    });
+    modeSel.addEventListener('change', function () {
+      app.setInputMode(parseInt(this.value, 10));
+      updateControlsVisibility();
+    });
+    document.getElementById('zoom-select').addEventListener('change', function () {
+      app.zoom = parseInt(this.value, 10); relayout();
+    });
+
+    // Fullscreen enter/exit + landscape orientation (best-effort).
+    function enterFullscreen() {
+      var st = stageEl();
+      (st.requestFullscreen || st.webkitRequestFullscreen).call(st);
+      if (screen.orientation && screen.orientation.lock) {
+        screen.orientation.lock('landscape').catch(function () {});
+      }
+    }
+    function exitFullscreen() {
+      (document.exitFullscreen || document.webkitExitFullscreen).call(document);
+      if (screen.orientation && screen.orientation.unlock) {
+        try { screen.orientation.unlock(); } catch (e) {}
+      }
+    }
+    document.getElementById('fs-btn').addEventListener('click', function () {
+      isFullscreen() ? exitFullscreen() : enterFullscreen();
+    });
+    document.getElementById('fs-exit').addEventListener('click', exitFullscreen);
+    document.addEventListener('fullscreenchange', relayout);
+    document.addEventListener('webkitfullscreenchange', relayout);
+    window.addEventListener('resize', relayout);
+    window.addEventListener('orientationchange', relayout);
+
+    // Display-settings popout (resolution / input mode / zoom).
+    var settingsBtn = document.getElementById('settings-btn');
+    var settingsPanel = document.getElementById('settings-panel');
+    function setSettingsOpen(open) {
+      settingsPanel.classList.toggle('hidden', !open);
+      settingsBtn.setAttribute('aria-expanded', open ? 'true' : 'false');
+    }
+    settingsBtn.addEventListener('click', function () {
+      setSettingsOpen(settingsPanel.classList.contains('hidden'));
+    });
+    settingsPanel.addEventListener('change', function () { setSettingsOpen(false); });  // close after a pick
+    document.addEventListener('pointerdown', function (e) {
+      if (settingsPanel.classList.contains('hidden')) return;
+      if (settingsBtn.contains(e.target) || settingsPanel.contains(e.target)) return;
+      setSettingsOpen(false);
+    });
+    document.addEventListener('keydown', function (e) {
+      if (e.key === 'Escape') setSettingsOpen(false);
+    });
+
+    // Mouse-wheel / trackpad two-finger scroll over the canvas → scroll the list.
+    // Proportional to deltaY (normalized across deltaMode) and heavily dampened,
+    // otherwise high-frequency trackpad events scroll far too fast.
+    canvas.addEventListener('wheel', function (e) {
+      if (!app.ready) return;
+      e.preventDefault();
+      var dy = e.deltaY;
+      var factor;
+      if (e.deltaMode === 1) { dy *= 16; factor = 0.2; }            // mouse wheel (lines)
+      else if (e.deltaMode === 2) { dy *= (app.displayH || 240); factor = 0.2; }  // pages
+      else if (Math.abs(dy) >= 50) { factor = 0.2; }               // mouse wheel (big px notch)
+      else { factor = 0.7; }                                       // trackpad 2-finger (small px)
+      // scroll_active(+) reveals content above, so invert the sign.
+      var amount = Math.round(-dy * factor);
+      if (amount !== 0) app.scroll(amount);
+    }, { passive: false });
+
+    // On-screen hardware controls (press + hold-to-repeat).
+    function keyFor(name) { return (LV_KEY[name] != null) ? LV_KEY[name] : (AUX_KEY[name] != null ? AUX_KEY[name] : 0); }
+    document.querySelectorAll('#play button[data-key]').forEach(function (btn) {
+      var code = keyFor(btn.getAttribute('data-key'));
+      var holdTimer = null, repeatTimer = null;
+      function fire() { if (app.ready && code) app.sendKey(code); }
+      function start(e) {
+        e.preventDefault(); canvas.focus(); fire();
+        holdTimer = setTimeout(function () { repeatTimer = setInterval(fire, 90); }, 350);
+      }
+      function stop() { clearTimeout(holdTimer); clearInterval(repeatTimer); holdTimer = repeatTimer = null; }
+      btn.addEventListener('pointerdown', start);
+      btn.addEventListener('pointerup', stop);
+      btn.addEventListener('pointerleave', stop);
+      btn.addEventListener('pointercancel', stop);
+    });
+    // Keyboard nav requires the canvas to hold focus (SDL keyboard is scoped to
+    // it), so focus it on click.
+    canvas.addEventListener('pointerdown', function () { this.focus(); });
+
+    // Outline whichever card currently holds focus — the screen/scenario
+    // selectors, the LVGL stage (canvas or its controls), or the JSON editor.
+    var cards = Array.prototype.slice.call(document.querySelectorAll('main .card'));
+    document.addEventListener('focusin', function (e) {
+      var active = e.target && e.target.closest ? e.target.closest('.card') : null;
+      cards.forEach(function (c) { c.classList.toggle('active', c === active); });
+    });
+
+    // Clicking anywhere in a card (not just on a control) activates it by
+    // focusing that card's primary input — so the whole card is the hit target.
+    function wireCardClick(card, primary) {
+      if (!card || !primary) return;
+      card.addEventListener('pointerdown', function (e) {
+        // Let native controls handle their own focus/cursor; otherwise focus the primary.
+        if (!e.target.closest('select, button, input, textarea, a')) primary.focus();
+      });
+    }
+    wireCardClick(document.getElementById('stage'), canvas);
+    wireCardClick(document.querySelector('.col-json .card'), editor);
+    wireCardClick(document.querySelector('.col-main > .card'), screenSel);
+
+    // Auto-select touch mode on touch devices.
+    if ('ontouchstart' in window || navigator.maxTouchPoints > 0) {
+      modeSel.value = '0';
+      app.setInputMode(0);
+    }
+    updateControlsVisibility();
+
+    populateScenarios(screenSel.value);
+    editor.value = currentContextText();
+    applyEditor();
+
+    // In hardware mode, focus the screen on load so arrow keys work immediately
+    // (no need to discover that you must click it first).
+    if (!app.isTouch) canvas.focus();
+  }
+</script>
+
+{{{ SCRIPT }}}
+</body>
+</html>

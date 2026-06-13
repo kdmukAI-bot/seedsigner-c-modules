@@ -51,6 +51,7 @@ endif()
 # - LVGL headers are provided via -DLVGL_ROOT=<path> (preferred), or auto-detected below.
 set(PROJECT_ROOT "${CMAKE_CURRENT_LIST_DIR}/../..")
 set(SEEDSIGNER_DIR "${PROJECT_ROOT}/components/seedsigner")
+set(COMMON_DIR "${PROJECT_ROOT}/tools/common")
 set(NLOHMANN_JSON_INCLUDE_DIR "${PROJECT_ROOT}/components/nlohmann_json/include")
 
 if(NOT DEFINED LVGL_ROOT OR LVGL_ROOT STREQUAL "")
@@ -125,6 +126,12 @@ set(SEEDSIGNER_CORE_SOURCES
   "${SEEDSIGNER_DIR}/images/seedsigner_logo_img.c"
 )
 
+# Shared SDL/LVGL glue, also used by the WASM web_runner.
+set(RUNNER_COMMON_SOURCES
+  "${COMMON_DIR}/runner_core.cpp"
+  "${COMMON_DIR}/runner_sdl.cpp"
+)
+
 set(SCREEN_RUNNER_SOURCE
   "${CMAKE_CURRENT_LIST_DIR}/screen_runner.cpp"
 )
@@ -133,6 +140,7 @@ add_executable(screen_runner
   ${LVGL_SOURCES}
   ${SEEDSIGNER_FONT_SOURCES}
   ${SEEDSIGNER_CORE_SOURCES}
+  ${RUNNER_COMMON_SOURCES}
   ${SCREEN_RUNNER_SOURCE}
 )
 
@@ -149,6 +157,7 @@ target_compile_definitions(screen_runner PRIVATE
 target_include_directories(screen_runner PRIVATE
   "${LVGL_ROOT}"
   "${SEEDSIGNER_DIR}"
+  "${COMMON_DIR}"
   "${NLOHMANN_JSON_INCLUDE_DIR}"
 )
 

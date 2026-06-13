@@ -21,6 +21,9 @@
 #include "seedsigner.h"
 #include "input_profile.h"
 
+#include "runner_core.h"
+#include "runner_sdl.h"
+
 #include <algorithm>
 #include <cctype>
 #include <fstream>
@@ -30,15 +33,11 @@
 
 using json = nlohmann::ordered_json;
 
-typedef void (*screen_fn_t)(void *ctx_json);
-
-static const std::unordered_map<std::string, screen_fn_t> k_screen_registry = {
-    {"main_menu_screen", main_menu_screen},
-    {"button_list_screen", button_list_screen},
-    {"screensaver_screen", screensaver_screen},
-    {"large_icon_status_screen", large_icon_status_screen},
-    {"seed_add_passphrase_screen", seed_add_passphrase_screen},
-};
+// The LVGL display, framebuffer, input devices, screen registry, and resolution
+// switching are shared with the WASM web_runner via tools/common/runner_core
+// (SDL-free) and tools/common/runner_sdl (the two SDL helpers). This file keeps
+// only the desktop chrome: the sidebar, title bar, badges, status strip, and the
+// SDL window/renderer plumbing around the device viewport.
 
 struct scenario_def_t {
     std::string name;
@@ -70,17 +69,11 @@ static int g_label_gap     = 4;
 static int g_status_bar_h  = 32;
 static int g_status_gap    = 4;
 
-static std::vector<uint16_t> g_fb;
-
 // ---------------------------------------------------------------------------
-// Keypad indev state
-// ---------------------------------------------------------------------------
-
-static uint32_t g_pending_key = 0;
-static bool g_key_ready = false;
-
-// ---------------------------------------------------------------------------
-// Pointer indev state (TOUCH/Mouse mode)
+// Pointer event state (TOUCH/Mouse mode). Updated from SDL events in window
+// coordinates; translated to viewport-local and pushed to runner_core each
+// frame. (The LVGL framebuffer, draw buffer, and key/pointer indevs live in
+// runner_core.)
 // ---------------------------------------------------------------------------
 
 static int  g_pointer_x       = 0;
@@ -140,10 +133,9 @@ static int          g_res_prefix_w    = 0;
 static SDL_Rect     g_res_badge_rect  = {};    // logical rect of badge; hit-tested on click
 static int          g_current_profile_idx = 0;
 
-// LVGL display and draw buffer (globals for resolution switching)
-static lv_display_t *g_disp = NULL;
+// SDL viewport texture the device framebuffer is blitted into each frame.
+// (The LVGL display + draw buffer live in runner_core.)
 static SDL_Texture  *g_viewport_tex = NULL;
-static std::vector<uint8_t> g_draw_buf;
 
 // Status bar (below viewport)
 static SDL_Texture *g_status_tex = NULL;
@@ -434,16 +426,12 @@ static void toggle_input_mode(SDL_Renderer *renderer) {
                         ? INPUT_MODE_TOUCH : INPUT_MODE_HARDWARE;
     input_profile_set_mode(next);
     g_pointer_pressed = false;
-    g_key_ready       = false;
     load_scenario(renderer, g_scenario_idx);
     rebuild_mode_label(renderer);
     g_status_text = (next == INPUT_MODE_TOUCH) ? "Mouse mode" : "Keyboard mode";
     if (g_status_tex) { SDL_DestroyTexture(g_status_tex); g_status_tex = NULL; }
     g_status_set_ms = SDL_GetTicks();
 }
-
-// Forward declarations for functions defined after main LVGL plumbing section.
-static void lvgl_flush_cb(lv_display_t *disp, const lv_area_t *area, uint8_t *px_map);
 
 static void recalc_layout(SDL_Window *window, SDL_Renderer *renderer) {
     int content_h = g_label_strip_h + g_label_gap + g_height + g_status_gap + g_status_bar_h;
@@ -474,30 +462,11 @@ static void switch_resolution(SDL_Window *window, SDL_Renderer *renderer) {
     g_current_profile_idx = (g_current_profile_idx + 1) % display_profile_count();
     const DisplayProfile &profile = display_profile_at(g_current_profile_idx);
 
-    set_display(profile.width, profile.height);
+    // runner_core handles the display profile, framebuffer, LVGL display
+    // teardown/recreate, and reattaching the input devices.
+    runner_core::resize(profile.width, profile.height);
     g_width  = profile.width;
     g_height = profile.height;
-
-    // Tear down old LVGL display (also deletes all its screens).
-    if (g_disp) lv_display_delete(g_disp);
-
-    // Resize framebuffers.
-    g_fb.assign((size_t)g_width * (size_t)g_height, 0);
-    g_draw_buf.assign((size_t)g_width * (size_t)g_height * 2u, 0);
-
-    // Create new LVGL display at the new resolution.
-    g_disp = lv_display_create(g_width, g_height);
-    lv_display_set_flush_cb(g_disp, lvgl_flush_cb);
-    lv_display_set_color_format(g_disp, LV_COLOR_FORMAT_RGB565);
-    lv_display_set_buffers(g_disp, g_draw_buf.data(), NULL, g_draw_buf.size(),
-                           LV_DISPLAY_RENDER_MODE_FULL);
-
-    // lv_display_delete sets all associated indevs' display to NULL, which
-    // silently disables them. Reassign every indev to the new display.
-    lv_indev_t *indev = NULL;
-    while ((indev = lv_indev_get_next(indev)) != NULL) {
-        lv_indev_set_display(indev, g_disp);
-    }
 
     // Recreate SDL viewport texture.
     if (g_viewport_tex) SDL_DestroyTexture(g_viewport_tex);
@@ -666,18 +635,12 @@ static void load_scenario(SDL_Renderer *renderer, size_t idx) {
     g_scenario_idx = idx;
 
     const auto &sc = g_scenarios[idx];
-    const char *ctx_json = NULL;
-    std::string ctx_storage;
+    std::string ctx_json;
     if (sc.context.is_object() && !sc.context.empty()) {
-        ctx_storage = sc.context.dump();
-        ctx_json = ctx_storage.c_str();
+        ctx_json = sc.context.dump();
     }
-    {
-        auto it = k_screen_registry.find(sc.screen);
-        if (it != k_screen_registry.end()) {
-            it->second((void *)ctx_json);
-            lv_timer_handler();
-        }
+    if (runner_core::load_screen(sc.screen, ctx_json)) {
+        runner_core::tick(0);  // render the new screen this frame
     }
 
     update_label_strip(renderer, sc);
@@ -758,83 +721,8 @@ static int load_scenarios_file(const char *path, std::vector<scenario_def_t> &sc
     return scenarios.empty() ? -1 : 0;
 }
 
-static void lvgl_flush_cb(lv_display_t *disp, const lv_area_t *area, uint8_t *px_map) {
-    uint16_t *color_p = (uint16_t *)px_map;
-    for (int y = area->y1; y <= area->y2; ++y) {
-        if (y < 0 || y >= g_height) continue;
-        for (int x = area->x1; x <= area->x2; ++x) {
-            if (x < 0 || x >= g_width) continue;
-            g_fb[(size_t)y * (size_t)g_width + (size_t)x] = *color_p;
-            color_p++;
-        }
-    }
-    lv_display_flush_ready(disp);
-}
-
-static void keypad_read_cb(lv_indev_t *indev, lv_indev_data_t *data) {
-    (void)indev;
-    if (input_profile_get_mode() != INPUT_MODE_HARDWARE) {
-        data->state = LV_INDEV_STATE_RELEASED;
-        return;
-    }
-    if (g_key_ready) {
-        data->state = LV_INDEV_STATE_PRESSED;
-        data->key   = g_pending_key;
-        g_key_ready = false;
-    } else {
-        data->state = LV_INDEV_STATE_RELEASED;
-    }
-}
-
-static void pointer_read_cb(lv_indev_t *indev, lv_indev_data_t *data) {
-    (void)indev;
-    if (input_profile_get_mode() != INPUT_MODE_TOUCH) {
-        data->state = LV_INDEV_STATE_RELEASED;
-        return;
-    }
-    // Translate SDL logical coords → LVGL viewport-local coords
-    data->point.x = (int32_t)(g_pointer_x - g_viewport_rect.x);
-    data->point.y = (int32_t)(g_pointer_y - g_viewport_rect.y);
-    data->state   = g_pointer_pressed ? LV_INDEV_STATE_PRESSED : LV_INDEV_STATE_RELEASED;
-}
-
-static uint32_t map_sdl_key(SDL_Keycode key) {
-    switch (key) {
-        case SDLK_UP:       return LV_KEY_UP;
-        case SDLK_DOWN:     return LV_KEY_DOWN;
-        case SDLK_LEFT:     return LV_KEY_LEFT;
-        case SDLK_RIGHT:    return LV_KEY_RIGHT;
-        case SDLK_RETURN:
-        case SDLK_KP_ENTER: return LV_KEY_ENTER;  // center-click / select
-        // Number keys 1/2/3 emit the aux-key codes '1'/'2'/'3' (detected by
-        // is_aux_key / the passphrase KEY1/KEY2/KEY3 panel) — the intuitive
-        // binding (1 -> KEY1, etc.). F1/F2/F3 stay as aliases. RETURN remains the
-        // center-click, so nothing is lost by no longer mapping 1/2/3 to ENTER.
-        case SDLK_1: case SDLK_KP_1: case SDLK_EXCLAIM: case SDLK_F1: return (uint32_t)'1';
-        case SDLK_2: case SDLK_KP_2: case SDLK_AT:      case SDLK_F2: return (uint32_t)'2';
-        case SDLK_3: case SDLK_KP_3: case SDLK_HASH:    case SDLK_F3: return (uint32_t)'3';
-        default: return 0;
-    }
-}
-
-static void blit_to_texture(SDL_Texture *texture) {
-    void *pixels = nullptr;
-    int pitch = 0;
-    if (SDL_LockTexture(texture, NULL, &pixels, &pitch) != 0) return;
-    for (int y = 0; y < g_height; ++y) {
-        uint32_t *row = (uint32_t *)((uint8_t *)pixels + y * pitch);
-        for (int x = 0; x < g_width; ++x) {
-            size_t si = (size_t)y * (size_t)g_width + (size_t)x;
-            // Convert RGB565 to ARGB8888
-            uint16_t c = g_fb[si];
-            uint8_t r = (uint8_t)((c >> 11) << 3);
-            uint8_t g = (uint8_t)(((c >> 5) & 0x3F) << 2);
-            uint8_t b = (uint8_t)((c & 0x1F) << 3);
-            row[x] = 0xFF000000u | ((uint32_t)r << 16) | ((uint32_t)g << 8) | b;
-        }
-    }
-    SDL_UnlockTexture(texture);
-}
+// (The LVGL flush, keypad/pointer read callbacks, SDL keycode mapping, and the
+// RGB565→texture blit now live in tools/common/runner_core + runner_sdl.)
 
 
 // ---------------------------------------------------------------------------
@@ -983,24 +871,9 @@ int main(int argc, char **argv) {
             break;
         }
     }
-    set_display(g_width, g_height);
-    lv_init();
-    g_fb.assign((size_t)g_width * (size_t)g_height, 0);
-
-    g_draw_buf.assign((size_t)g_width * (size_t)g_height * 2u, 0);
-    g_disp = lv_display_create(g_width, g_height);
-    lv_display_set_flush_cb(g_disp, lvgl_flush_cb);
-    lv_display_set_color_format(g_disp, LV_COLOR_FORMAT_RGB565);
-    lv_display_set_buffers(g_disp, g_draw_buf.data(), NULL, g_draw_buf.size(),
-                           LV_DISPLAY_RENDER_MODE_FULL);
-
-    lv_indev_t *kb_indev = lv_indev_create();
-    lv_indev_set_type(kb_indev, LV_INDEV_TYPE_KEYPAD);
-    lv_indev_set_read_cb(kb_indev, keypad_read_cb);
-
-    lv_indev_t *ptr_indev = lv_indev_create();
-    lv_indev_set_type(ptr_indev, LV_INDEV_TYPE_POINTER);
-    lv_indev_set_read_cb(ptr_indev, pointer_read_cb);
+    // runner_core handles set_display + lv_init + the LVGL display, framebuffer,
+    // and keypad/pointer input devices.
+    runner_core::init(g_width, g_height);
 
     input_profile_set_mode(INPUT_MODE_HARDWARE);
 
@@ -1135,16 +1008,22 @@ int main(int argc, char **argv) {
                 } else if (key == SDLK_r) {
                     switch_resolution(window, renderer);
                 } else {
-                    uint32_t mapped = map_sdl_key(key);
-                    if (mapped != 0) { g_pending_key = mapped; g_key_ready = true; }
+                    uint32_t mapped = runner_sdl::map_sdl_keycode(key);
+                    if (mapped != 0) runner_core::push_key(mapped);
                 }
             }
         }
 
         uint32_t now = SDL_GetTicks();
-        lv_tick_inc(now - last_tick);
+
+        // Feed the latest pointer position (window coords → viewport-local) to
+        // runner_core; it gates on touch mode internally.
+        runner_core::set_pointer(g_pointer_x - g_viewport_rect.x,
+                                 g_pointer_y - g_viewport_rect.y,
+                                 g_pointer_pressed);
+
+        runner_core::tick(now - last_tick);
         last_tick = now;
-        lv_timer_handler();
 
         // Clear status text after fade completes (1.5s show + 0.5s fade = 2s total).
         if (!g_status_text.empty() && (now - g_status_set_ms) >= 2000) {
@@ -1152,7 +1031,7 @@ int main(int argc, char **argv) {
             if (g_status_tex) { SDL_DestroyTexture(g_status_tex); g_status_tex = NULL; }
         }
 
-        blit_to_texture(g_viewport_tex);
+        runner_sdl::blit_framebuffer_to_texture(g_viewport_tex);
 
         SDL_SetRenderDrawColor(renderer, 18, 18, 18, 255);
         SDL_RenderClear(renderer);
