@@ -9,9 +9,9 @@
     "context": {
       "button_list": [
         "Language",
-        "Persistent Settings",
-        "Camera",
-        "Network"
+        "Persistent settings",
+        "Camera rotation",
+        "Bitcoin network"
       ],
       "top_nav": {
         "title": "Settings",
@@ -33,15 +33,15 @@
         "context": {
           "button_list": [
             "Language",
-            "Persistent Settings",
-            "Camera",
-            "Network",
-            "Display",
-            "Security",
-            "Diagnostics",
+            "Persistent settings",
+            "Camera rotation",
+            "Bitcoin network",
+            "Script types",
+            "Sig types",
+            "Message signing",
             "Advanced",
-            "About",
-            "Factory Reset"
+            "Donate",
+            "I/O test"
           ]
         }
       },
@@ -122,7 +122,7 @@
   },
   "seed_add_passphrase_screen": {
     "context": {
-      "top_nav": { "title": "Enter Passphrase", "show_back_button": true, "show_power_button": false }
+      "top_nav": { "title": "BIP-39 Passphrase", "show_back_button": true, "show_power_button": false }
     },
     "variations": [
       {
