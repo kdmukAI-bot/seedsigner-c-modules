@@ -61,7 +61,7 @@ Git submodule pinned to LVGL v9.5.0.
 
 ## Display Profiles
 
-The UI scales across multiple display sizes via a `PX_MULTIPLIER` system. All layout constants (padding, button height, font sizes) are defined as base values scaled by the multiplier. Font files are pre-rendered at each target size.
+The UI scales across multiple display sizes via a `PX_MULTIPLIER` system. All layout constants (padding, button height, font sizes) are defined as base values scaled by the multiplier. The keyboard and icon fonts are baked as bitmaps at each target size; the five translated text roles (menu title, top-nav title, large button, button, body) are rasterized at runtime from a compiled-in OpenSans Western TTF via `lv_tiny_ttf`, sized per profile.
 
 | Display | Resolution | PX_MULTIPLIER | Notes |
 |---|---|---|---|
@@ -130,4 +130,4 @@ On merge to main:
 
 For ESP32-S3 builds, `components/seedsigner/` is an ESP-IDF component registered via `idf_component_register()`. The `seedsigner-micropython-builder` repo includes this repo as a git submodule and compiles the screens into the MicroPython firmware.
 
-The `usercmodule.cmake` file at the repo root registers MicroPython user C modules. The `bindings/` directory contains the MicroPython bindings that expose screen functions to Python. (Both are being migrated to `seedsigner-micropython-builder` as part of the ongoing platform separation.)
+The MicroPython integration glue — the `usercmodule.cmake` registration file and the `bindings/` directory that expose screen functions to Python — now lives in `seedsigner-micropython-builder`, having been moved there as part of the platform separation. This repo provides the platform-agnostic screen sources that builder consumes as a git submodule.

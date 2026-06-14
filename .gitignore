@@ -48,8 +48,10 @@ __pycache__/
 tools/apps/screenshot_generator/.build/
 tools/apps/screenshot_generator/screenshot_gen
 
-tools/apps/screenshot_generator/screenshots/manifest.json
-tools/apps/screenshot_generator/screenshots/img/
+# Generated gallery output (per-locale <locale>/manifest.json + <locale>/img/ +
+# locales.json). Only the index.html viewer is tracked.
+tools/apps/screenshot_generator/screenshots/*
+!tools/apps/screenshot_generator/screenshots/index.html
 
 # Secrets / credentials
 .env
@@ -74,8 +76,6 @@ tools/apps/screen_runner/build-asan/screen_runner
 # Web runner (WASM) build output
 tools/apps/web_runner/build-wasm/
 tools/apps/web_runner/build/
-# Generated at build time from tools/scenarios/scenarios.json
-tools/apps/web_runner/scenarios.js
 # Persistent build caches (ccache + Emscripten port cache)
 tools/apps/web_runner/.ccache/
 tools/apps/web_runner/.emcache/
@@ -86,5 +86,3 @@ CLAUDE.md
 /lang-packs/
 # Localized scenarios (test-only output of tools/i18n/gen_localized_scenarios.py)
 tools/scenarios/localized/
-# Local multi-language screenshot review renders
-tools/apps/screenshot_generator/screenshots/i18n/

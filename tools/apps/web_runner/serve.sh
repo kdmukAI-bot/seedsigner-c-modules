@@ -1,8 +1,13 @@
 #!/usr/bin/env bash
 # Serve the built web_runner bundle to the local browser AND external clients on
-# the LAN and the tailnet. Binds 0.0.0.0 (all interfaces) so the page is reachable
-# from a phone/laptop on the same network or any device on your tailnet — the
-# intended remote-development loop (build on this machine, view from elsewhere).
+# the LAN and the tailnet (binds 0.0.0.0), AND watch tools/scenarios/scenarios.json,
+# auto-regenerating the localized catalogs + re-staging the served assets on every
+# save.
+#
+# Because fonts + scenarios are fetched at runtime, the dev loop is just:
+#   edit tools/scenarios/scenarios.json  ->  hard-refresh the browser
+# No WASM rebuild. (Run build.sh once first to produce the bundle; rebuild only
+# when C++ / shell.html change. Font pack changes still need build_fontpacks.py.)
 #
 # Usage:
 #   bash tools/apps/web_runner/serve.sh           # port 8000
@@ -13,13 +18,30 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-SERVE_DIR="${SCRIPT_DIR}/build-wasm"
+# Repo root is three levels up: tools/apps/web_runner -> tools/apps -> tools -> repo.
+REPO_ROOT="$(cd "$SCRIPT_DIR/../../.." && pwd)"
 PORT="${1:-8000}"
+SERVE_DIR="${SCRIPT_DIR}/build-wasm"
+SCENARIOS="${REPO_ROOT}/tools/scenarios/scenarios.json"
 
 if [ ! -f "${SERVE_DIR}/index.html" ]; then
   echo "No build found at ${SERVE_DIR}/index.html — run 'bash tools/apps/web_runner/build.sh' first." >&2
   exit 1
 fi
+
+# Regenerate the localized scenario catalogs from scenarios.json and re-stage the
+# served assets. Runtime-fetched, so the browser just needs a hard-refresh.
+regen() {
+  if python3 "${REPO_ROOT}/tools/i18n/gen_localized_scenarios.py" >/dev/null 2>&1 \
+     && python3 "${SCRIPT_DIR}/stage_assets.py" --dest "${SERVE_DIR}" >/dev/null 2>&1; then
+    echo "[$(date +%H:%M:%S)] regenerated localized catalogs + re-staged — hard-refresh the browser"
+  else
+    echo "[$(date +%H:%M:%S)] regenerate FAILED — check tools/scenarios/scenarios.json (valid JSON?)" >&2
+  fi
+}
+
+# Stage once so the served assets match the current scenarios.json.
+regen
 
 # Pick a likely LAN IPv4 (skip loopback, docker bridges, and tailnet 100.64/10).
 lan_ip="$(hostname -I 2>/dev/null | tr ' ' '\n' \
@@ -38,7 +60,26 @@ if command -v tailscale >/dev/null 2>&1; then
   [ -n "$ts_name" ] && echo "  Tailnet: http://${ts_name}:${PORT}/index.html"
   [ -n "$ts_ip" ]   && echo "  Tailnet: http://${ts_ip}:${PORT}/index.html"
 fi
-echo "Press Ctrl-C to stop."
 
+# Serve in the background so we can watch alongside; clean it up on exit.
 # --bind 0.0.0.0 is the default for http.server, but make it explicit.
-exec python3 -m http.server "${PORT}" --bind 0.0.0.0 --directory "${SERVE_DIR}"
+python3 -m http.server "${PORT}" --bind 0.0.0.0 --directory "${SERVE_DIR}" &
+SERVE_PID=$!
+trap 'kill "$SERVE_PID" 2>/dev/null || true; echo; echo "stopped server + watcher"' INT TERM
+
+echo "Watching tools/scenarios/scenarios.json (Ctrl-C to stop server + watcher)…"
+
+# Event-driven via inotify when available; otherwise poll the file mtime.
+if command -v inotifywait >/dev/null 2>&1; then
+  # close_write covers editor saves; move_self/modify cover atomic-rename saves.
+  while inotifywait -q -e close_write,modify,move_self "$SCENARIOS" >/dev/null 2>&1; do
+    regen
+  done
+else
+  last="$(stat -c %Y "$SCENARIOS" 2>/dev/null || echo 0)"
+  while :; do
+    sleep 1
+    cur="$(stat -c %Y "$SCENARIOS" 2>/dev/null || echo 0)"
+    if [ "$cur" != "$last" ]; then last="$cur"; regen; fi
+  done
+fi

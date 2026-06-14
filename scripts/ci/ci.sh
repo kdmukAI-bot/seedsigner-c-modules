@@ -38,7 +38,16 @@ case "$COMMAND" in
     ;;
 
   generate-screenshots)
-    tools/apps/screenshot_generator/build/screenshot_gen ${1:+--out-dir "$1"}
+    # Multi-language gallery: render every supported locale into its own subdir so
+    # the published gallery has a language picker. Needs the localized scenario
+    # catalogs + the font packs (regenerated here from the seedsigner-translations
+    # submodule + fontTools); the generator itself was built by build-screenshots.
+    OUT="${1:-tools/apps/screenshot_generator/screenshots}"
+    GEN=tools/apps/screenshot_generator/build/screenshot_gen
+    python3 -c "import fontTools" 2>/dev/null || pip3 install --quiet --disable-pip-version-check fonttools
+    python3 tools/i18n/gen_localized_scenarios.py
+    python3 tools/i18n/build_fontpacks.py --gen-bin "$GEN"
+    python3 tools/apps/screenshot_generator/gen_gallery.py --out "$OUT" --gen-bin "$GEN"
     ;;
 
   compare-screenshots)
@@ -103,14 +112,27 @@ PY
       -DDISPLAY_WIDTH=240 -DDISPLAY_HEIGHT=240 \
       ${@+"$@"}
     cmake --build tools/apps/web_runner/build-wasm -j"$NPROC"
+
+    # Stage the runtime assets (scenario catalogs + font packs + locale index)
+    # next to the bundle. The script/CJK packs are regenerated from the
+    # translations submodule (present via `submodules: recursive`) with fontTools;
+    # the screenshot_gen built by `build-screenshots` provides the manifest.
+    python3 -c "import fontTools" 2>/dev/null || pip3 install --quiet --disable-pip-version-check fonttools
+    python3 tools/apps/web_runner/stage_assets.py \
+      --dest tools/apps/web_runner/build-wasm \
+      --regen-packs \
+      --gen-bin tools/apps/screenshot_generator/build/screenshot_gen
     ;;
 
   package-web-runner)
-    # Copy the single-file bundle into a self-contained directory for deploy.
+    # Copy the multi-file bundle + its runtime assets into a self-contained dir.
     # Usage: ci.sh package-web-runner [DIR]
     WEB_DIR="${1:-web-site}"
     mkdir -p "$WEB_DIR"
     cp tools/apps/web_runner/build-wasm/index.html "$WEB_DIR/"
+    cp tools/apps/web_runner/build-wasm/index.js   "$WEB_DIR/"
+    cp tools/apps/web_runner/build-wasm/index.wasm "$WEB_DIR/"
+    cp -r tools/apps/web_runner/build-wasm/assets  "$WEB_DIR/"
     ;;
 
   # ---------------------------------------------------------------------------
@@ -128,7 +150,12 @@ PY
     if [ -d tools/apps/screenshot_generator/screenshots ]; then
       cp -r tools/apps/screenshot_generator/screenshots/. "$SITE_DIR/"
     fi
+    # Multi-file web runner: engine (index.{html,js,wasm}) + runtime assets/
+    # (scenario catalogs + font packs + locale index), all served statically.
     cp tools/apps/web_runner/build-wasm/index.html "$SITE_DIR/play/"
+    cp tools/apps/web_runner/build-wasm/index.js   "$SITE_DIR/play/"
+    cp tools/apps/web_runner/build-wasm/index.wasm "$SITE_DIR/play/"
+    cp -r tools/apps/web_runner/build-wasm/assets  "$SITE_DIR/play/"
     echo "Assembled site at $SITE_DIR (gallery at /, web runner at /play/)"
     ;;
 

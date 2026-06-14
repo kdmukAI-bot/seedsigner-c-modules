@@ -10,7 +10,9 @@
 
 ## Architecture separation (long-term)
 
-- [ ] Migrate desktop/tooling LVGL dependency to standalone pinned clone workflow (e.g.,
-  `third_party/lvgl`) rather than ESP-IDF managed component discovery.
+- [x] Migrate desktop/tooling LVGL dependency to standalone pinned clone workflow (e.g.,
+  `third_party/lvgl`) rather than ESP-IDF managed component discovery. _(Done: the desktop
+  tool CMake now uses `third_party/lvgl`, the pinned LVGL submodule, as the preferred LVGL
+  root; ESP-IDF managed-component paths remain only as fallbacks.)_
 - [ ] Separate LVGL screen/core modules from ESP-specific integration so screen layer can
   compile/run without ESP target dependencies.

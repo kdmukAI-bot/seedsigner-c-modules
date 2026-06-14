@@ -13,6 +13,7 @@ tools/
     build_fontpacks.py          subset fonts → repo-root lang-packs/<loc>/ (production-ready)
     gen_localized_scenarios.py  localize scenarios → scenarios/localized/<loc>.json (test-only)
     po_catalog.py               shared .po reader
+    supported_locales.json      canonical locale list (code/english/native + pack_locales)
     seedsigner-translations/    submodule (.po catalogs)
   scenarios/    the screen catalog (data, not tools)
     scenarios.json    source of truth: screen contexts + variations, shared by all apps
@@ -35,3 +36,5 @@ per-locale fonts and scenarios those apps consume; see `i18n/README.md`.
 2. (i18n) `python3 tools/i18n/build_fontpacks.py` and `python3 tools/i18n/gen_localized_scenarios.py`.
 3. Render/validate with `apps/screenshot_generator` (regression checks) or `apps/screen_runner`
    (interactive). Each app's `README.md` has its build/run details.
+4. (multi-language gallery) `apps/screenshot_generator/gen_gallery.py` renders every locale in
+   `i18n/supported_locales.json` into per-locale subdirs to build the language-picker gallery.

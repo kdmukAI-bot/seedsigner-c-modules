@@ -1,6 +1,8 @@
 # Font & Multi-Language Rendering (Display Layer)
 
-_Status: Phase 1 implemented (CJK zh/ja/ko proven end-to-end via the desktop screenshot generator);
+_Status: Phase 1 implemented (CJK zh/ja/ko proven end-to-end via the desktop screenshot generator); the
+font-tiering work has since landed too — a compiled-in OpenSans Western-Latin TTF baseline for the five
+translated roles plus same-size Greek/Cyrillic/Vietnamese script packs (see `docs/font-tiering-plan.md`);
 Phase 2 (shaping-complex scripts) deferred. This documents how the LVGL display layer renders fonts
 and multi-language text and the offline tooling that produces the font assets. Display-layer companion
 to the system-level vision in `seedsigner/docs/architecture/dual-platform-overview.md`. For the
@@ -51,7 +53,9 @@ font** (Tiny TTF reads outlines lazily) — the host frees it only after `clear`
 
 ## Storage & Engine Model
 
-Fonts live on the SD card as signed **language packs**, not in the binary. The engine is **Tiny TTF**
+The non-Latin / script fonts live on the SD card as signed **language packs**, not in the binary (the
+firmware-baked tier — the OpenSans Western-Latin baseline TTF, Inconsolata, icons — is the exception; see
+the tiering plan). The engine is **Tiny TTF**
 (`LV_USE_TINY_TTF`, `lv_tiny_ttf_create_data`): one subset `.ttf` per locale, loaded from a buffer,
 rasterized on demand. A single `.ttf` serves **every size and every resolution** (create at any px), so
 packs are resolution-independent and small (a CJK subset is ~100KB; the full source TTF is multiple MB).
@@ -72,19 +76,25 @@ rasterize-all validation tractable: we never face an unanticipated glyph at runt
 
 ## Chain model: dominant script is PRIMARY
 
-The baked floor (OpenSans + Inconsolata + SeedSigner icons, ASCII only) is always present. Per locale:
+The compiled-in baseline is always present: the OpenSans **Western-Latin TTF** (Regular + SemiBold,
+rasterized at runtime via Tiny TTF) covers the five translated text roles for Western/accented Latin,
+while **Inconsolata** (keyboard/text-entry) and the **SeedSigner icons** stay baked `.c` bitmaps. (See
+the tiering plan, `docs/font-tiering-plan.md`, for the full firmware-baked / script-pack / language-pack
+tiering.) Per locale:
 
 - **CJK (`ChainRole::Primary`)** — the script font is the **primary** for each text role at a per-role
   legibility-bumped size (base 240: body 18 / button 20 / large-button & title 23 / main-menu 26;
-  scaled by the profile multiplier). The baked OpenSans is its `.fallback`. Line metrics come from the
+  scaled by the profile multiplier). The OpenSans baseline is its `.fallback`. Line metrics come from the
   (taller) script primary — this is *why* it's primary, so the bumped CJK isn't clipped by a smaller
   primary's line box. Matches the production Python per-locale size bumps.
-- **Same-size scripts** (Greek/Cyrillic/Vietnamese; Phase 2+) would chain as a *fallback* under the
-  OpenSans primary (no size bump → no metric issue). Not yet in the table.
+- **Same-size scripts** (Greek/Cyrillic/Vietnamese) chain as a *fallback* under the OpenSans baseline at
+  the native role sizes (no size bump → no metric issue). These are in the table as block-range
+  `ChainRole::Fallback` script packs (`el`/`ru`/`vi`).
 
 **Embedded English in a CJK screen** (technical terms that aren't catalog msgids) renders via the
 **OpenSans fallback at the normal English size** — the CJK subset excludes ASCII, so a Latin codepoint
-misses in the script primary and the chain defers to the baked OpenSans. This is a deliberate divergence
+misses in the script primary and the chain defers to the OpenSans baseline (now the Western-Latin TTF).
+This is a deliberate divergence
 from production Python, whose single-font PIL renderer has no fallback and draws embedded English at the
 bumped CJK size. It depends on the Tiny TTF fallback fix (`third_party/patches/lv_tiny_ttf-fallback-chain.patch`):
 the stock no-cache path reports absent codepoints as *found*, so without the patch the fallback never

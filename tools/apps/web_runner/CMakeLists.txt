@@ -87,24 +87,21 @@ set(SEEDSIGNER_CORE_SOURCES
   "${SEEDSIGNER_DIR}/input_profile.cpp"
   "${SEEDSIGNER_DIR}/navigation.cpp"
   "${SEEDSIGNER_DIR}/seedsigner.cpp"
+  # Locale font seam: ss_set_locale / ss_register_font drive these to chain the
+  # fetched script/CJK packs over the baked baseline.
+  "${SEEDSIGNER_DIR}/font_registry.cpp"
+  "${SEEDSIGNER_DIR}/locale_fonts.cpp"
   "${SEEDSIGNER_DIR}/images/seedsigner_logo_img.c")
 
 set(RUNNER_COMMON_SOURCES
   "${COMMON_DIR}/runner_core.cpp"
   "${COMMON_DIR}/runner_sdl.cpp")
 
-# ---------------------------------------------------------------------------
-# Generate the embedded scenario catalog (--pre-js) from tools/scenarios/scenarios.json.
-# ---------------------------------------------------------------------------
-set(SCENARIOS_JSON "${PROJECT_ROOT}/tools/scenarios/scenarios.json")
-set(SCENARIOS_PREJS "${CMAKE_CURRENT_BINARY_DIR}/scenarios.gen.js")
-add_custom_command(
-  OUTPUT "${SCENARIOS_PREJS}"
-  COMMAND ${CMAKE_COMMAND} -E env python3
-          "${CMAKE_CURRENT_LIST_DIR}/gen_scenarios.py" "${SCENARIOS_JSON}" "${SCENARIOS_PREJS}"
-  DEPENDS "${SCENARIOS_JSON}" "${CMAKE_CURRENT_LIST_DIR}/gen_scenarios.py"
-  COMMENT "Generating embedded scenario catalog (scenarios.gen.js)")
-add_custom_target(web_runner_scenarios DEPENDS "${SCENARIOS_PREJS}")
+# Scenarios + fonts are NOT baked into the bundle. They are served as static
+# assets (assets/scenarios/<locale>.json, assets/lang-packs/<locale>/*.ttf) and
+# fetched at runtime, so a translation/font/scenario edit is a file swap with no
+# WASM rebuild. The build is the engine only: index.{html,js,wasm}. Asset staging
+# lives in stage_assets.py (called by build.sh and the CI assemble-site step).
 
 add_executable(web_runner
   ${LVGL_SOURCES}
@@ -112,8 +109,6 @@ add_executable(web_runner
   ${SEEDSIGNER_CORE_SOURCES}
   ${RUNNER_COMMON_SOURCES}
   "${CMAKE_CURRENT_LIST_DIR}/web_runner.cpp")
-
-add_dependencies(web_runner web_runner_scenarios)
 
 target_compile_definitions(web_runner PRIVATE
   LV_CONF_SKIP
@@ -144,19 +139,20 @@ target_compile_options(web_runner PRIVATE
   -fexceptions
   -O2)
 
+# Multi-file output (index.html + index.js + index.wasm), served over HTTP — no
+# -sSINGLE_FILE. ALLOW_MEMORY_GROWTH lets tiny_ttf's rasterizer grow the heap.
+# JS marshals fetched font bytes through _malloc/_free into ss_register_font.
 target_link_options(web_runner PRIVATE
   -sUSE_SDL=2
-  -sSINGLE_FILE=1
   -sALLOW_MEMORY_GROWTH=1
   -fexceptions
   -O2
-  "-sEXPORTED_RUNTIME_METHODS=['ccall','cwrap','UTF8ToString']"
-  "-sEXPORTED_FUNCTIONS=['_main','_ss_load_screen','_ss_set_resolution','_ss_set_input_mode','_ss_send_key','_ss_scroll','_ss_get_width','_ss_get_height']"
-  "--shell-file" "${CMAKE_CURRENT_LIST_DIR}/shell.html"
-  "--pre-js" "${SCENARIOS_PREJS}")
+  "-sEXPORTED_RUNTIME_METHODS=['ccall','cwrap','UTF8ToString','HEAPU8']"
+  "-sEXPORTED_FUNCTIONS=['_main','_ss_load_screen','_ss_set_resolution','_ss_set_input_mode','_ss_send_key','_ss_scroll','_ss_get_width','_ss_get_height','_ss_locale_font_plan','_ss_begin_locale','_ss_register_font','_ss_reload','_malloc','_free']"
+  "--shell-file" "${CMAKE_CURRENT_LIST_DIR}/shell.html")
 
-# Force a relink when the shell or the generated catalog changes.
+# Force a relink when the shell changes.
 set_target_properties(web_runner PROPERTIES
   OUTPUT_NAME "index"
   SUFFIX ".html"
-  LINK_DEPENDS "${CMAKE_CURRENT_LIST_DIR}/shell.html;${SCENARIOS_PREJS}")
+  LINK_DEPENDS "${CMAKE_CURRENT_LIST_DIR}/shell.html")

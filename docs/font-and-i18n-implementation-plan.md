@@ -1,9 +1,11 @@
 # Multi-Language Font Support — Implementation Status
 
 _Status: **Phase 1 implemented** on branch `feat/font-i18n`. CJK (zh/ja/ko) renders end-to-end through
-the desktop screenshot generator across all four resolution profiles, including embedded English.
-Companion to the design/rationale doc [font-and-i18n-rendering.md](font-and-i18n-rendering.md) and the
-debugging notes in [knowledge/font-loading-binfont-vs-tiny-ttf.md](knowledge/font-loading-binfont-vs-tiny-ttf.md)._
+the desktop screenshot generator across all four resolution profiles, including embedded English. The
+font-tiering work (`docs/font-tiering-plan.md`) has since landed: a compiled-in OpenSans Western-Latin
+TTF baseline for the five translated roles (Stage A) and same-size Greek/Cyrillic/Vietnamese script
+packs (Stage B). Companion to the design/rationale doc [font-and-i18n-rendering.md](font-and-i18n-rendering.md)
+and the debugging notes in [knowledge/font-loading-binfont-vs-tiny-ttf.md](knowledge/font-loading-binfont-vs-tiny-ttf.md)._
 
 > This supersedes the earlier "planned" version of this file. Several decisions changed during design +
 > implementation: engine is **Tiny TTF** (not pre-baked `.bin`); chains are **CJK-primary** (not
@@ -14,26 +16,38 @@ debugging notes in [knowledge/font-loading-binfont-vs-tiny-ttf.md](knowledge/fon
 
 ### Render layer (`components/seedsigner/`)
 - **`locale_fonts.{h,cpp}`** — canonical locale→{font, size, chain} table (single source of truth).
-  CJK-primary entries for zh/ja/ko with per-role legibility-bumped base sizes. `supported_locales()`
+  CJK-primary entries for zh/ja/ko with per-role legibility-bumped base sizes, plus same-size
+  block-range script-pack entries for el/ru/vi (`ChainRole::Fallback`, OpenSans source, with a
+  `unicode_range`). `locale_role_render_px()` is the shared per-role px source of truth (it replicates
+  the baseline's large_button quirk: 20 px base at 240 height, 18 at 320/480). `supported_locales()`
   emits the per-profile JSON manifest (the only outward interface).
 - **`font_registry.{h,cpp}`** — the I/O-agnostic seam: `seedsigner_set_locale` / `register_font` /
   `clear_registered_fonts`. Creates `lv_tiny_ttf` fonts from buffers (kerning off, `cache_size=0`),
-  wires the CJK-primary → OpenSans-fallback chain, repoints the active profile.
-- **`gui_constants.{h,cpp}`** — profiles made non-const; added `active_profile_mutable()`.
+  wires the chain (CJK-primary → OpenSans-baseline fallback; or a same-size script pack as a fallback
+  under a heap copy of the baseline primary), validates the supplied px against `locale_role_render_px()`,
+  and repoints the active profile.
+- **`gui_constants.{h,cpp}`** — profiles made non-const; added `active_profile_mutable()`. The five
+  translated text roles are no longer baked bitmaps: `set_display()` lazily installs the compiled-in
+  OpenSans Western-Latin TTF baseline per profile (via `lv_tiny_ttf`) once LVGL is initialized, never
+  destroyed. The keyboard (Inconsolata) and icon fonts stay baked `.c`.
 
 ### Offline tooling (`tools/i18n/`, see its README)
 Two independent steps — fonts (production) and scenarios (test-only) are decoupled:
-- **`build_fontpacks.py`** — reads `screenshot_gen --dump-locales`, subsets each locale's source TTF to
-  its corpus via `fontTools` → one `.ttf` + `manifest.json` per locale in repo-root **`lang-packs/<loc>/`**
-  (gitignored, production-ready). `--locale` restricts the set.
+- **`build_fontpacks.py`** — reads `screenshot_gen --dump-locales`, then subsets each locale's source TTF
+  in one of two modes → `manifest.json` + `.ttf`(s) per locale in repo-root **`lang-packs/<loc>/`**
+  (gitignored, production-ready). **Corpus mode** (CJK/Noto): subset to the locale's `.po` glyph corpus →
+  one `<loc>.ttf`. **Block-range mode** (script packs: el/ru/vi, keyed off a `unicode_range` in the
+  manifest): subset OpenSans to a fixed Unicode block, two weights → `<loc>_{regular,semibold}.ttf`.
+  `--locale` restricts the set.
 - **`gen_localized_scenarios.py`** — translates `tools/scenarios/scenarios.json` display-text leaves via
   the catalog (English passthrough) → per-locale **`tools/scenarios/localized/<loc>.json`** (gitignored,
   test-only).
 - **`po_catalog.py`** — self-contained `.po` reader (no Babel): catalog + corpus extraction; shared by both.
 
 ### Assets & data
-- Noto Sans TTFs (SC/JP/KR/AR/TH) vendored into `components/seedsigner/assets/` — **this repo owns all
-  locale fonts**.
+- Noto Sans TTFs (SC/JP/KR/AR/TH) plus OpenSans (Regular + SemiBold, the source family for the Western
+  baseline and the el/ru/vi script packs) vendored into `components/seedsigner/assets/` — **this repo
+  owns all locale fonts**.
 - `seedsigner-translations` added as a submodule at `tools/i18n/seedsigner-translations/` — **`.po`
   catalogs only** (translation content).
 

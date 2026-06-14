@@ -1,7 +1,9 @@
 # Font tiering redesign — baked Western core (TTF) + script packs + language packs
 
-_Status: **design locked, not started.** Captured before context drift. Plan doc (not knowledge);
-delete once implemented. Companion to `docs/font-and-i18n-rendering.md`._
+_Status: **Stages A + B implemented** (see the "DONE" sections below); remaining tiers (CJK was already
+done pre-plan; Arabic/Persian/Thai/Hindi) are Phase 2, and the device path is later. Captured before
+context drift. Plan doc (not knowledge); delete once fully implemented. Companion to
+`docs/font-and-i18n-rendering.md`._
 
 ## Context / why
 

@@ -16,7 +16,8 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-REPO_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
+# Repo root is three levels up: tools/apps/web_runner -> tools/apps -> tools -> repo.
+REPO_ROOT="$(cd "$SCRIPT_DIR/../../.." && pwd)"
 
 WIDTH="${DISPLAY_WIDTH:-240}"
 HEIGHT="${DISPLAY_HEIGHT:-240}"
@@ -65,7 +66,18 @@ docker run --rm \
             && cmake --build tools/apps/web_runner/build-wasm -j\"\$(nproc)\" \
             && ccache --show-stats | grep -iE 'hits|misses' || true"
 
+# Stage the runtime assets (scenario catalogs + font packs + locale index) next
+# to the bundle. The packs must already exist under lang-packs/ (regenerate with
+# tools/i18n/build_fontpacks.py); pass --regen-packs below to rebuild them here.
+echo "==> Staging runtime assets (scenarios + font packs + locale index)"
+REGEN_PACKS="${REGEN_PACKS:-0}"
+STAGE_ARGS=(--dest "${SCRIPT_DIR}/build-wasm")
+if [ "$REGEN_PACKS" = "1" ]; then
+  STAGE_ARGS+=(--regen-packs --gen-bin "${REPO_ROOT}/tools/apps/screenshot_generator/build/screenshot_gen")
+fi
+python3 "${SCRIPT_DIR}/stage_assets.py" "${STAGE_ARGS[@]}"
+
 echo ""
-echo "==> Done: ${REPO_ROOT}/tools/apps/web_runner/build-wasm/index.html"
-echo "    Open it directly (double-click), or serve it to LAN + tailnet clients:"
+echo "==> Done: ${REPO_ROOT}/tools/apps/web_runner/build-wasm/  (index.html + .js + .wasm + assets/)"
+echo "    Multi-file bundle — serve it over HTTP (file:// won't fetch assets):"
 echo "      bash tools/apps/web_runner/serve.sh"

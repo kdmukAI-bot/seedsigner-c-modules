@@ -31,7 +31,7 @@ label draw task with the button index in `base->id1`.
 `#else #include "lvgl/lvgl.h"` block but omits the `#ifdef __has_include` auto-detect
 block the existing repo fonts have — so the generated `.c` falls back to
 `lvgl/lvgl.h` and won't compile. Re-add the `__has_include` block (copy from any
-existing `opensans_*_4bpp.c`). Font `.c` files are listed explicitly (NOT globbed)
+existing baked font `.c`, e.g. `inconsolata_semibold_24_4bpp.c`). Font `.c` files are listed explicitly (NOT globbed)
 in `tools/apps/screen_runner/CMakeLists.txt` and `tools/apps/screenshot_generator/CMakeLists.txt`.
 
 ## lv_keyboard_create sets a BOTTOM_MID anchor in its constructor

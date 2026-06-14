@@ -160,6 +160,9 @@
   <div class="card">
     <h2>Screen &amp; scenario</h2>
     <div class="row">
+      <label>Language
+        <select id="locale-select"></select>
+      </label>
       <label>Screen
         <select id="screen-select"></select>
       </label>
@@ -280,6 +283,53 @@
     return document.fullscreenElement === stageEl() || document.webkitFullscreenElement === stageEl();
   }
 
+  // ---- Scenario catalog (fetched per locale, expanded client-side) ----
+  // The page fetches the RAW localized scenarios.json for a locale and expands
+  // each screen's base context + variations here — same RFC 7396 merge-patch the
+  // C runner_core and gen_scenarios.py use — so a scenario/translation edit is a
+  // static-file swap with no rebuild.
+  function mergePatch(target, patch) {
+    if (patch && typeof patch === 'object' && !Array.isArray(patch)) {
+      var out = (target && typeof target === 'object' && !Array.isArray(target)) ? Object.assign({}, target) : {};
+      Object.keys(patch).forEach(function (k) {
+        if (patch[k] === null) delete out[k];
+        else out[k] = mergePatch(out[k], patch[k]);
+      });
+      return out;
+    }
+    return patch;
+  }
+  function slugify(name) {
+    var s = (name || '').replace(/[^0-9A-Za-z_]+/g, '_').replace(/^_+|_+$/g, '');
+    return s || 'variation';
+  }
+  function buildCatalog(root) {
+    var cat = {};
+    Object.keys(root || {}).forEach(function (screen) {
+      var def = root[screen] || {};
+      var base = def.context || {};
+      var entries = [{ name: '(default)', context: base }];
+      (def.variations || []).forEach(function (v) {
+        entries.push({ name: slugify(v.name || 'variation'), context: mergePatch(base, v.context || {}) });
+      });
+      cat[screen] = entries;
+    });
+    return cat;
+  }
+
+  // ---- Deep-link state (URL query params) ----
+  // The current selections (language, screen, scenario, resolution, input mode,
+  // zoom) are mirrored into the address bar so a refresh / shared link restores
+  // exactly where you were. Query params (not hash) — they're client-side, so
+  // this works unchanged on GitHub Pages.
+  function parseUrl() {
+    var p = new URLSearchParams(window.location.search);
+    return {
+      lang: p.get('lang'), screen: p.get('screen'), scenario: p.get('scenario'),
+      res: p.get('res'), mode: p.get('mode'), zoom: p.get('zoom'),
+    };
+  }
+
   // ---- Hooks called from C (web_runner.cpp) ----
   window.ssOnReady = function (w, h) {
     app.displayW = w; app.displayH = h;
@@ -288,6 +338,11 @@
     app.setInputMode  = Module.cwrap('ss_set_input_mode', null, ['number']);
     app.sendKey       = Module.cwrap('ss_send_key', null, ['number']);
     app.scroll        = Module.cwrap('ss_scroll', null, ['number']);
+    // Locale fonts: the render layer's per-resolution plan, plus the clear/set and
+    // register entry points. JS fetches each .ttf and hands the bytes to register.
+    app.beginLocale    = Module.cwrap('ss_begin_locale', null, ['string']);
+    app.localeFontPlan = Module.cwrap('ss_locale_font_plan', 'string', ['string']);
+    app.registerFont   = Module.cwrap('ss_register_font', 'number', ['string', 'number', 'number', 'number']);
     app.ready = true;
     relayout();
     initUI();
@@ -363,13 +418,25 @@
     var editor    = document.getElementById('json-editor');
     var errBox    = document.getElementById('json-error');
     var modeSel   = document.getElementById('mode-select');
+    var localeSel = document.getElementById('locale-select');
+    var resSel    = document.getElementById('res-select');
+    var zoomSel   = document.getElementById('zoom-select');
     var canvas    = document.getElementById('canvas');
-    var catalog   = window.SS_SCENARIOS || {};
+    var catalog   = {};   // expanded catalog for the active locale (loaded async)
+    var fontCache = {};   // 'locale/file' -> Uint8Array; lets re-register skip re-fetch
+    var pendingState = parseUrl();   // deep-link state to restore on first load
 
-    Object.keys(catalog).forEach(function (name) {
-      var o = document.createElement('option'); o.value = name; o.textContent = name;
-      screenSel.appendChild(o);
-    });
+    // Screens are identical across locales (only text differs); repopulate the
+    // screen <select> from the current catalog, preserving the selection.
+    function rebuildScreenOptions() {
+      var prev = screenSel.value;
+      screenSel.innerHTML = '';
+      Object.keys(catalog).forEach(function (name) {
+        var o = document.createElement('option'); o.value = name; o.textContent = name;
+        screenSel.appendChild(o);
+      });
+      if (prev && catalog[prev]) screenSel.value = prev;
+    }
 
     function populateScenarios(screen) {
       scenSel.innerHTML = '';
@@ -403,11 +470,151 @@
       relayout();
     }
 
+    // ---- Deep-link state ----
+    function currentScenarioName() {
+      var idx = parseInt(scenSel.value, 10) || 0;
+      var entry = (catalog[screenSel.value] || [])[idx];
+      return entry ? entry.name : null;
+    }
+    function selectScenarioByName(name) {
+      if (name == null) return;
+      var list = catalog[screenSel.value] || [];
+      for (var i = 0; i < list.length; i++) {
+        if (list[i].name === name) { scenSel.value = String(i); return; }
+      }
+      // unknown name -> leave the default (first) scenario selected
+    }
+    // Mirror the current selections into the address bar (replaceState = in place,
+    // no history spam). Omits empties so the URL stays tidy.
+    function updateUrl() {
+      var p = new URLSearchParams();
+      if (app.locale)       p.set('lang', app.locale);
+      if (screenSel.value)  p.set('screen', screenSel.value);
+      var sn = currentScenarioName(); if (sn && sn !== '(default)') p.set('scenario', sn);
+      if (resSel.value)     p.set('res', resSel.value);
+      if (modeSel.value)    p.set('mode', modeSel.value);
+      if (zoomSel.value)    p.set('zoom', zoomSel.value);
+      window.history.replaceState(null, '', window.location.pathname + '?' + p.toString());
+    }
+    // Restore resolution / input mode / zoom from deep-link state BEFORE fonts load
+    // (font px is per-resolution). Each is validated against its <select> options.
+    function applyDisplaySettings(state) {
+      if (state.res) {
+        var okRes = false;
+        Array.prototype.forEach.call(resSel.options, function (o) { if (o.value === state.res) okRes = true; });
+        if (okRes) {
+          resSel.value = state.res;
+          var p = state.res.split('x');
+          app.setResolution(parseInt(p[0], 10), parseInt(p[1], 10));
+        }
+      }
+      if (state.mode === '0' || state.mode === '1') {
+        modeSel.value = state.mode;
+        app.setInputMode(parseInt(state.mode, 10));
+      }
+      if (state.zoom) {
+        var z = parseInt(state.zoom, 10);
+        if (z >= 1 && z <= 4) { zoomSel.value = String(z); app.zoom = z; }
+      }
+      updateControlsVisibility();
+    }
+
+    // ---- Locales ----
+    // Register the active locale's font packs for the CURRENT resolution: ask the
+    // render layer which {role, px, file} it needs, fetch each .ttf once, and hand
+    // the bytes to WASM (which copies them). Latin-baseline locales get an empty
+    // plan and just fall back to the compiled-in OpenSans floor.
+    async function applyLocaleFonts(locale) {
+      // ss_locale_font_plan is a pure query (doesn't touch live fonts), so read the
+      // plan and fetch EVERY needed .ttf up front, caching the bytes across calls.
+      // Only once all bytes are in hand do we destroy the old fonts and register
+      // the new ones — with no await in between. Two payoffs:
+      //  - no use-after-free: freeing the outgoing font then awaiting a fetch would
+      //    let an animation frame redraw the old screen with a dangling pointer
+      //    (this hung the page when switching between two scrolling-title locales);
+      //  - no box flash on resize: a re-register for an already-loaded locale hits
+      //    the cache (no await), so destroy→register→reload all land in one
+      //    microtask flush before the next frame, instead of drawing one frame in
+      //    the baked baseline (which shows pack glyphs — Greek/Cyrillic/CJK — as
+      //    .notdef boxes).
+      var plan;
+      try { plan = JSON.parse(app.localeFontPlan(locale)); } catch (e) { plan = []; }
+      for (var i = 0; i < plan.length; i++) {
+        var key = locale + '/' + plan[i].file;
+        if (!fontCache[key]) {
+          var resp = await fetch('assets/lang-packs/' + locale + '/' + plan[i].file);
+          if (!resp.ok) throw new Error('font ' + plan[i].file + ' (' + resp.status + ')');
+          fontCache[key] = new Uint8Array(await resp.arrayBuffer());
+        }
+      }
+      // --- no awaits past this point ---
+      app.beginLocale(locale);
+      for (var j = 0; j < plan.length; j++) {
+        var f = plan[j], bytes = fontCache[locale + '/' + f.file];
+        var ptr = Module._malloc(bytes.length);
+        Module.HEAPU8.set(bytes, ptr);   // re-access HEAPU8 post-malloc (growth-safe)
+        app.registerFont(f.role, ptr, bytes.length, f.px);
+        Module._free(ptr);               // C side copied the bytes
+      }
+    }
+
+    // Switch UI language: fetch + expand the locale's scenario catalog, apply its
+    // fonts, then repopulate + re-render. The current screen + scenario are kept
+    // across the switch; `restore` (deep-link state, first load only) overrides
+    // them with the screen/scenario from the URL.
+    function setLocale(locale, restore) {
+      app.locale = locale;
+      if (localeSel.value !== locale) localeSel.value = locale;
+      // Capture the target screen/scenario BEFORE the catalog is swapped.
+      var wantScreen   = (restore && restore.screen)   || screenSel.value;
+      var wantScenario = (restore && restore.scenario != null) ? restore.scenario : currentScenarioName();
+      return fetch('assets/scenarios/' + locale + '.json')
+        .then(function (r) { if (!r.ok) throw new Error('scenarios ' + r.status); return r.json(); })
+        .then(function (root) {
+          catalog = buildCatalog(root);
+          rebuildScreenOptions();
+          if (wantScreen && catalog[wantScreen]) screenSel.value = wantScreen;
+          return applyLocaleFonts(locale);
+        })
+        .then(function () {
+          populateScenarios(screenSel.value);
+          selectScenarioByName(wantScenario);
+          editor.value = currentContextText();
+          applyEditor();
+          updateUrl();
+        })
+        .catch(function (e) { setError('Locale "' + locale + '": ' + e.message, false); });
+    }
+
+    function loadLocales() {
+      return fetch('assets/scenarios/locales.json')
+        .then(function (r) { return r.json(); })
+        .then(function (list) {
+          var codes = [];
+          (list || []).forEach(function (l) {
+            var o = document.createElement('option'); o.value = l.code; o.textContent = l.name;
+            localeSel.appendChild(o); codes.push(l.code);
+          });
+          // Deep-link language wins if it's a known locale; otherwise default to
+          // English (the dev reference) even though the list is alphabetical.
+          app.locale = (pendingState.lang && codes.indexOf(pendingState.lang) >= 0)
+            ? pendingState.lang
+            : (codes.indexOf('en') >= 0 ? 'en' : ((list && list[0]) ? list[0].code : 'en'));
+        })
+        .catch(function () {
+          // No index (e.g. opened without assets): fall back to a lone English entry.
+          var o = document.createElement('option'); o.value = 'en'; o.textContent = 'English';
+          localeSel.appendChild(o); app.locale = 'en';
+        });
+    }
+
+    localeSel.addEventListener('change', function () { setLocale(this.value); });
+
     screenSel.addEventListener('change', function () {
       populateScenarios(screenSel.value); scenSel.value = '0';
-      editor.value = currentContextText(); applyEditor();
+      editor.value = currentContextText(); applyEditor(); updateUrl();
     });
-    scenSel.addEventListener('change', function () { editor.value = currentContextText(); applyEditor(); });
+    scenSel.addEventListener('change', function () { editor.value = currentContextText(); applyEditor(); updateUrl(); });
     editor.addEventListener('input', function () {
       if (!app.liveRender) return;
       clearTimeout(app.debounceTimer);
@@ -415,17 +622,21 @@
     });
     document.getElementById('apply-btn').addEventListener('click', applyEditor);
 
-    document.getElementById('res-select').addEventListener('change', function () {
+    resSel.addEventListener('change', function () {
       var p = this.value.split('x');
       app.setResolution(parseInt(p[0], 10), parseInt(p[1], 10));
-      applyEditor();
+      // Font px is per-resolution, so re-register the locale's packs, then render.
+      applyLocaleFonts(app.locale).then(applyEditor);
+      updateUrl();
     });
     modeSel.addEventListener('change', function () {
       app.setInputMode(parseInt(this.value, 10));
       updateControlsVisibility();
+      updateUrl();
     });
-    document.getElementById('zoom-select').addEventListener('change', function () {
+    zoomSel.addEventListener('change', function () {
       app.zoom = parseInt(this.value, 10); relayout();
+      updateUrl();
     });
 
     // Fullscreen enter/exit + landscape orientation (best-effort).
@@ -529,16 +740,18 @@
     wireCardClick(document.querySelector('.col-json .card'), editor);
     wireCardClick(document.querySelector('.col-main > .card'), screenSel);
 
-    // Auto-select touch mode on touch devices.
-    if ('ontouchstart' in window || navigator.maxTouchPoints > 0) {
+    // Auto-select touch mode on touch devices — unless the URL pins a mode (which
+    // applyDisplaySettings restores below).
+    if (!pendingState.mode && ('ontouchstart' in window || navigator.maxTouchPoints > 0)) {
       modeSel.value = '0';
       app.setInputMode(0);
     }
-    updateControlsVisibility();
 
-    populateScenarios(screenSel.value);
-    editor.value = currentContextText();
-    applyEditor();
+    // Restore resolution / input mode / zoom from the URL BEFORE loading fonts
+    // (font px is per-resolution), then load the locale (which also restores the
+    // screen + scenario from the URL on this first call) and do the first render.
+    applyDisplaySettings(pendingState);
+    loadLocales().then(function () { return setLocale(app.locale, pendingState); });
 
     // In hardware mode, focus the screen on load so arrow keys work immediately
     // (no need to discover that you must click it first).

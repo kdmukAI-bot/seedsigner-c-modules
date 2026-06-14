@@ -12,6 +12,11 @@ cmake -S tools/apps/screenshot_generator \
 cmake --build tools/apps/screenshot_generator/build -j
 ```
 
+The render resolution is a **build-time** choice, set via `-DDISPLAY_WIDTH=...`
+`-DDISPLAY_HEIGHT=...` at configure time (each is a compiled-in profile). A single
+binary renders **every** display profile it was built with on each run — there are
+no runtime `--width`/`--height` flags.
+
 Executable:
 
 - `tools/apps/screenshot_generator/build/screenshot_gen`
@@ -25,10 +30,14 @@ tools/apps/screenshot_generator/build/screenshot_gen [options]
 Options:
 
 - `--out-dir <path>` output root (default `tools/apps/screenshot_generator/screenshots`)
-- `--width <px>` render width (default `480`)
-- `--height <px>` render height (default `320`)
 - `--scenarios-file <path>` scenario config file
   - default from repo root: `tools/scenarios/scenarios.json`
+- `--locale <code>` register that locale's font pack (from `--font-dir`) before rendering,
+  so non-Latin scenarios render with their script/CJK glyphs
+- `--font-dir <path>` directory holding `<locale>/...` font packs (default `lang-packs`)
+- `--dump-locales` print the render layer's canonical per-profile locale→font manifest
+  (JSON) and exit. This is the render layer's sole outward interface — the i18n font
+  tooling consumes it instead of duplicating the locale table.
 
 ## Scenario configuration
 
@@ -44,7 +53,9 @@ Schema:
   - `name`
   - optional `context` (merged onto base context)
 
-`animated` is optional in context and defaults to `false`.
+`animated` is optional in context and defaults to `false`. For an animated scenario,
+`animation_seconds` (optional, default `2.0`) sets the capture/playback duration — used to
+size a long scrolling title to exactly one loop.
 
 ## Output model
 
@@ -60,7 +71,34 @@ The generator runs in **single-output overwrite mode**:
 For scenarios marked animated in context:
 
 - if ImageMagick is available (`magick` or `convert`), a GIF is generated
+- frames are captured at a fixed **70 ms step (~14.3 FPS)** and the GIF is written with a
+  matching `-delay` (70 ms = 7 centiseconds), so playback runs in lockstep with capture
+- the capture spans `animation_seconds` (default `2.0`, per-scenario overridable); frame
+  count is `round(animation_seconds * 1000 / 70)`
 - temporary frame files are cleaned up after GIF generation
+
+## Multi-language gallery (`gen_gallery.py`)
+
+`gen_gallery.py` builds the multi-language screenshot gallery: it runs `screenshot_gen` once
+per locale in `tools/i18n/supported_locales.json` (in parallel), each with that locale's
+translated scenarios (`--scenarios-file tools/scenarios/localized/<code>.json`) and font pack
+(`--locale <code>`), writing into a per-locale subdirectory:
+
+```
+<out>/<locale>/manifest.json + <out>/<locale>/img/<res>/*.png|gif
+<out>/locales.json   picker index: [{code, name}] of the locales that rendered
+<out>/index.html     multi-language viewer (language picker reads locales.json,
+                     then <locale>/manifest.json for the selected language)
+```
+
+```bash
+python3 tools/apps/screenshot_generator/gen_gallery.py \
+  --out tools/apps/screenshot_generator/screenshots [--jobs N]
+```
+
+The caller must have already built `screenshot_gen`, generated the localized scenarios
+(`tools/i18n/gen_localized_scenarios.py`), and built the font packs for the pack locales
+(`tools/i18n/build_fontpacks.py`).
 
 ## Screenshot comparison (PR diff reports)
 

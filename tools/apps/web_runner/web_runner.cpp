@@ -21,11 +21,17 @@
 #include "lvgl.h"
 #include "seedsigner.h"
 #include "input_profile.h"
+#include "font_registry.h"
+#include "locale_fonts.h"
 
 #include "runner_core.h"
 #include "runner_sdl.h"
 
+#include <nlohmann/json.hpp>
+
+#include <cstdint>
 #include <string>
+#include <vector>
 
 #ifndef DISPLAY_WIDTH
 #error "DISPLAY_WIDTH must be defined by the build system"
@@ -46,6 +52,12 @@ static uint32_t      g_last_tick_ms = 0;
 // Remember the last loaded screen so a resolution change can re-render it.
 static std::string g_cur_screen;
 static std::string g_cur_json;
+
+// Per-locale font bytes handed in from JavaScript (fetched .ttf files). tiny_ttf
+// reads glyph outlines lazily, so each buffer must outlive its registered font;
+// we keep owned copies here and free them only after the fonts are cleared (next
+// ss_begin_locale). Empty when the active locale is covered by the baked floor.
+static std::vector<std::vector<uint8_t>> g_locale_font_buffers;
 
 // ---------------------------------------------------------------------------
 // Result callbacks → JavaScript
@@ -129,16 +141,18 @@ EMSCRIPTEN_KEEPALIVE int ss_load_screen(const char* fn_name, const char* json) {
     return 1;
 }
 
-// Switch device resolution and re-render the current screen at the new size.
+// Switch device resolution. Deliberately does NOT reload/redraw the screen:
+// resize() rebuilt the active profile with the BAKED baseline fonts, so redrawing
+// now would flash a pack locale's text (Greek/Cyrillic/…) as .notdef boxes for one
+// frame until the locale's fonts are re-registered at the new px. The JS host
+// re-registers the fonts (from its byte cache, synchronously) and reloads the
+// screen right after this returns — before the next animation frame — so the first
+// frame at the new resolution already has the correct glyphs.
 EMSCRIPTEN_KEEPALIVE void ss_set_resolution(int w, int h) {
     runner_core::resize(w, h);
     create_sdl_surface(w, h);
     // Tell the page the canvas backing size changed so it can re-fit CSS.
     EM_ASM({ if (window.ssOnResize) window.ssOnResize($0, $1); }, w, h);
-    if (!g_cur_screen.empty()) {
-        try { runner_core::load_screen(g_cur_screen, g_cur_json); } catch (...) {}
-    }
-    runner_core::tick(0);
 }
 
 // 0 = touch (pointer), 1 = hardware (keypad / joystick).
@@ -164,6 +178,63 @@ EMSCRIPTEN_KEEPALIVE void ss_scroll(int dy) {
 
 EMSCRIPTEN_KEEPALIVE int ss_get_width()  { return runner_core::width(); }
 EMSCRIPTEN_KEEPALIVE int ss_get_height() { return runner_core::height(); }
+
+// ---- Locale fonts ---------------------------------------------------------
+// Fonts are NOT baked into the bundle: JavaScript fetches the per-locale .ttf
+// packs at runtime and feeds the bytes back through ss_register_font, so a font
+// or translation change is just a file swap (no WASM rebuild). The render layer
+// (locale_fonts.cpp) stays the single source of truth for which files/sizes a
+// locale needs — exposed here as a JSON plan for the active resolution.
+
+// JSON array of the per-role fonts `locale` needs at the CURRENT resolution:
+//   [{"role":"body","px":17,"file":"vi_regular.ttf"}, ...]
+// Empty array ([]) when the locale is covered by the baked OpenSans floor (no
+// pack). The returned pointer is owned by a static buffer (valid until the next
+// call). JS fetches each unique file from assets/lang-packs/<locale>/<file> and
+// registers it via ss_register_font.
+EMSCRIPTEN_KEEPALIVE const char* ss_locale_font_plan(const char* locale) {
+    static std::string out;
+    nlohmann::json plan = nlohmann::json::array();
+    try {
+        nlohmann::json manifest = nlohmann::json::parse(supported_locales_json());
+        const std::string want = locale ? locale : "";
+        for (const auto& loc : manifest["locales"]) {
+            if (loc.value("locale", "") == want) { plan = loc["fonts"]; break; }
+        }
+    } catch (...) {
+        plan = nlohmann::json::array();
+    }
+    out = plan.dump();
+    return out.c_str();
+}
+
+// Begin switching to `locale`: drop the previous locale's registered fonts and
+// their byte buffers, then set the active locale so subsequent ss_register_font
+// calls validate against its table entry. An empty/unknown locale leaves only
+// the baked floor (English / Latin-baseline locales need nothing more).
+EMSCRIPTEN_KEEPALIVE void ss_begin_locale(const char* locale) {
+    seedsigner_clear_registered_fonts();  // restores baked fonts; must run first
+    g_locale_font_buffers.clear();         // then it's safe to free the buffers
+    seedsigner_set_locale(locale ? locale : "");
+}
+
+// Register one fetched .ttf for `role` at `px`. The bytes are COPIED into a
+// buffer this module owns (kept alive until the next ss_begin_locale), so the
+// caller may free its WASM-heap copy immediately. Returns 1 on success, else 0.
+EMSCRIPTEN_KEEPALIVE int ss_register_font(const char* role, const uint8_t* data, int len, int px) {
+    if (!role || !data || len <= 0) return 0;
+    g_locale_font_buffers.emplace_back(data, data + len);
+    const std::vector<uint8_t>& buf = g_locale_font_buffers.back();
+    return seedsigner_register_font(role, buf.data(), buf.size(), px) ? 1 : 0;
+}
+
+// Re-render the current screen with context `json` (the locale's translated
+// scenario text). Equivalent to ss_load_screen for the current screen, but named
+// for the "fonts changed, redraw" intent. Returns the ss_load_screen code.
+EMSCRIPTEN_KEEPALIVE int ss_reload(const char* json) {
+    if (g_cur_screen.empty()) return 0;
+    return ss_load_screen(g_cur_screen.c_str(), json);
+}
 
 }  // extern "C"
 
