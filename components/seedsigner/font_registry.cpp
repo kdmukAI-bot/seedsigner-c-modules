@@ -39,6 +39,11 @@ void seedsigner_set_locale(const char* locale) {
     g_current_locale = locale ? locale : "";
 }
 
+bool seedsigner_locale_is_rtl() {
+    const LocaleFontEntry* entry = find_locale_font_entry(g_current_locale);
+    return entry && entry->rtl;
+}
+
 bool seedsigner_register_font(const char* logical_name, const uint8_t* buf, size_t len, int font_px_size) {
     if (!logical_name || !buf || len == 0) {
         fprintf(stderr, "seedsigner_register_font: invalid arguments\n");
